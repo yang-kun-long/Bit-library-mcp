@@ -5,6 +5,7 @@
   "description": "通过 MCP 访问需要认证的学术数据库",
   "permissions": [
     "activeTab",
+    "tabs",
     "storage",
     "scripting"
   ],
@@ -19,6 +20,14 @@
       "matches": ["<all_urls>"],
       "js": ["content.js"],
       "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://sso.bit.edu.cn/cas/login*",
+        "https://webvpn.bit.edu.cn/*/cas/login*"
+      ],
+      "js": ["cas-content.js"],
+      "run_at": "document_end"
     }
   ],
   "action": {

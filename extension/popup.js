@@ -32,3 +32,13 @@ document.getElementById('testBtn').addEventListener('click', () => {
     }
   });
 });
+
+// 打开图书馆按钮
+document.getElementById('openLibBtn').addEventListener('click', () => {
+  chrome.tabs.create({ url: 'https://lib.bit.edu.cn/' });
+});
+
+// 设置按钮
+document.getElementById('settingsBtn').addEventListener('click', () => {
+  chrome.tabs.create({ url: chrome.runtime.getURL('settings.html') });
+});

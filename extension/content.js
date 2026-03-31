@@ -97,6 +97,119 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           data: { success: false, error: error.message }
         });
       });
+  } else if (message.type === 'CHECK_LOGIN_STATUS') {
+    const welcomeLinks = document.querySelectorAll('a[href="#"]');
+    let isLoggedIn = false;
+
+    for (const link of welcomeLinks) {
+      if (link.textContent.includes('欢迎来自北京理工大学的朋友')) {
+        isLoggedIn = true;
+        break;
+      }
+    }
+
+    sendResponse({
+      success: isLoggedIn,
+      error: isLoggedIn ? null : '未找到登录标识'
+    });
+  } else if (message.type === 'SEARCH_PAPERS') {
+    (async () => {
+      try {
+        const { query, field = 'Z', language = '', doc_types = [], year_start, year_end, isbn, issn, page_size = 15, only_catalog, only_eres } = message;
+
+        // 点击高级检索
+        const advLink = document.querySelector('#adv');
+        if (advLink) advLink.click();
+        await new Promise(resolve => setTimeout(resolve, 500));
+
+        // 设置语种
+        if (language) {
+          const langCheckboxes = document.querySelectorAll('#language input[name="header_chorens"]');
+          langCheckboxes.forEach(cb => cb.checked = false);
+          const targetLang = Array.from(langCheckboxes).find(cb => cb.value === language);
+          if (targetLang) targetLang.checked = true;
+        }
+
+        // 设置文献类型
+        if (doc_types.length > 0) {
+          const typeCheckboxes = document.querySelectorAll('#channel input[name="channel"]');
+          typeCheckboxes.forEach(cb => cb.checked = false);
+          doc_types.forEach(type => {
+            const cb = Array.from(typeCheckboxes).find(c => c.value === String(type));
+            if (cb) cb.checked = true;
+          });
+        }
+
+        // 设置检索字段和关键词
+        const fieldSelects = document.querySelectorAll('select[name="dept"]');
+        const inputs = document.querySelectorAll('.sForm_t .txt');
+        if (fieldSelects[0]) fieldSelects[0].value = field;
+        if (inputs[0]) inputs[0].value = query;
+
+        // 设置ISBN/ISSN
+        if (isbn) {
+          const isbnInput = document.querySelector('input[name="bn"]');
+          if (isbnInput) isbnInput.value = isbn;
+        }
+        if (issn) {
+          const issnInput = document.querySelector('input[name="sn"]');
+          if (issnInput) issnInput.value = issn;
+        }
+
+        // 设置年份
+        if (year_start) {
+          const syearSelect = document.querySelector('select[name="syear"]');
+          if (syearSelect) syearSelect.value = year_start;
+        }
+        if (year_end) {
+          const eyearSelect = document.querySelector('select[name="eyear"]');
+          if (eyearSelect) eyearSelect.value = year_end;
+        }
+
+        // 设置每页显示
+        const sizeRadios = document.querySelectorAll('input[name="size"]');
+        sizeRadios.forEach(r => r.checked = r.value === String(page_size));
+
+        // 设置只显示选项
+        if (only_catalog) {
+          const catalogCb = document.querySelector('input[name="strtype"][value="3"]');
+          if (catalogCb) catalogCb.checked = true;
+        }
+        if (only_eres) {
+          const eresCb = document.querySelector('input[name="strtype"][value="4"]');
+          if (eresCb) eresCb.checked = true;
+        }
+
+        // 点击检索按钮
+        const searchBtn = document.querySelector('#advbutton');
+        if (searchBtn) searchBtn.click();
+
+        // 等待结果加载
+        await new Promise(resolve => setTimeout(resolve, 3000));
+
+        // 提取结果
+        const results = [];
+        const items = document.querySelectorAll('.resultList .item');
+
+        items.forEach(item => {
+          const titleEl = item.querySelector('.title a');
+          const authorsEl = item.querySelector('.author');
+          const sourceEl = item.querySelector('.source');
+
+          results.push({
+            title: titleEl?.textContent.trim() || '',
+            url: titleEl?.href || '',
+            authors: authorsEl?.textContent.trim() || '',
+            source: sourceEl?.textContent.trim() || ''
+          });
+        });
+
+        sendResponse({ success: true, papers: results });
+      } catch (error) {
+        sendResponse({ success: false, error: error.message });
+      }
+    })();
+    return true;
   }
   return true;
 });

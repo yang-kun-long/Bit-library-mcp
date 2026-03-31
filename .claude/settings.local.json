@@ -16,7 +16,26 @@
       "Bash(python:*)",
       "Bash(netstat -ano)",
       "Bash(findstr 8765)",
-      "mcp__library-access__ping_test"
+      "mcp__library-access__ping_test",
+      "Bash(git rm:*)",
+      "mcp__fetcher__fetch_url",
+      "Bash(findstr :8765)",
+      "Bash(taskkill:*)",
+      "Bash(powershell -Command \"$PSVersionTable.PSVersion.ToString\\(\\)\")",
+      "Bash(powershell -Command '$PSVersionTable.PSVersion.ToString\\(\\)')",
+      "mcp__library-access__bit_login",
+      "Bash(tasklist:*)",
+      "Bash(pwsh -Command \"Get-Process -Id 5636,20572 | Select-Object Id,ProcessName\")",
+      "Bash(pwsh -Command \"Stop-Process -Id 5636 -Force\")",
+      "Bash(pwsh -Command \"Get-Content $HOME\\\\.claude.json -ErrorAction SilentlyContinue\")",
+      "Bash(pwsh -Command \"Get-Process python | Where-Object {\\(Get-NetTCPConnection -OwningProcess $_.Id -ErrorAction SilentlyContinue\\).LocalPort -eq 8765} | Stop-Process -Force\")",
+      "Bash(xargs kill:*)",
+      "mcp__library-access__search_papers",
+      "Bash(pwsh -Command \"Start-Process python -ArgumentList ''server.py'' -WindowStyle Hidden\")",
+      "Bash(pwsh -Command \"Start-Process python -ArgumentList ''server.py'' -WorkingDirectory \\(Get-Location\\)\")",
+      "Bash(pwsh -Command \"Start-Process python -ArgumentList ''server.py'' -WorkingDirectory ''D:\\\\Bit-library-mcp\\\\mcp-server''\")",
+      "Bash(pwsh -Command \"Get-Process python -ErrorAction SilentlyContinue | Where-Object {$_.Path -like '*mcp-server*' -or $_.CommandLine -like '*server.py*'} | Stop-Process -Force\")",
+      "Bash(pwsh -Command \"Get-NetTCPConnection -LocalPort 8765 -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess | ForEach-Object { Stop-Process -Id $_ -Force }\")"
     ]
   }
 }

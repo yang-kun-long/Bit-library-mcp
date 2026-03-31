@@ -28,16 +28,46 @@ async def list_tools() -> list[Tool]:
             }
         ),
         Tool(
+            name="bit_login",
+            description="自动登录北理工图书馆",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "service": {"type": "string", "description": "服务 URL，默认为图书馆", "default": "https://lib.bit.edu.cn/sso/login/3rd?wfwfid=2398&refer=https://lib.bit.edu.cn"}
+                },
+                "required": []
+            }
+        ),
+        Tool(
+            name="open_url",
+            description="在浏览器中打开指定 URL",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "url": {"type": "string", "description": "要打开的 URL"}
+                },
+                "required": ["url"]
+            }
+        ),
+        Tool(
             name="search_papers",
             description="在学术数据库中搜索论文",
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "site": {"type": "string", "description": "图书馆站点，如 library.bit.edu.cn"},
-                    "database": {"type": "string", "description": "数据库名称，如 ieee"},
-                    "query": {"type": "string", "description": "搜索关键词"}
+                    "query": {"type": "string", "description": "搜索关键词"},
+                    "field": {"type": "string", "description": "检索字段: Z(全部)/Su(主题)/T(题名)/A(作者)/S(摘要)/K(关键词)/O(作者单位)", "default": "Z"},
+                    "language": {"type": "string", "description": "语种: 空(全部)/1(中文)/2(外文)", "default": ""},
+                    "doc_types": {"type": "array", "items": {"type": "integer"}, "description": "文献类型: 11(图书)/1(期刊)/13(报纸)/3(学位)/4(会议)/6(标准)/46(法规)/47(案例)/10(专利)/8(音视频)/21(成果)/85(图片)"},
+                    "year_start": {"type": "string", "description": "开始年份"},
+                    "year_end": {"type": "string", "description": "结束年份"},
+                    "isbn": {"type": "string", "description": "ISBN"},
+                    "issn": {"type": "string", "description": "ISSN"},
+                    "page_size": {"type": "integer", "description": "每页显示数量: 15/30", "default": 15},
+                    "only_catalog": {"type": "boolean", "description": "只显示馆藏目录"},
+                    "only_eres": {"type": "boolean", "description": "只显示电子资源"}
                 },
-                "required": ["site", "database", "query"]
+                "required": ["query"]
             }
         ),
         Tool(
@@ -58,6 +88,10 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
     """执行 MCP 工具"""
     if name == "ping_test":
         return await ping_test()
+    elif name == "bit_login":
+        return await bit_login(arguments)
+    elif name == "open_url":
+        return await open_url(arguments)
     elif name == "search_papers":
         return await search_papers(arguments)
     elif name == "download_paper":
@@ -93,47 +127,94 @@ async def ping_test() -> list[TextContent]:
     except Exception as e:
         return [TextContent(type="text", text=f"❌ 测试失败: {str(e)}")]
 
-async def search_papers(args: dict) -> list[TextContent]:
-    """搜索论文"""
-    site = args["site"]
-    database = args["database"]
-    query = args["query"]
+async def bit_login(args: dict) -> list[TextContent]:
+    """北理工 CAS 登录并进入发现系统"""
+    try:
+        if not ws_server.clients:
+            return [TextContent(type="text", text="❌ 没有浏览器连接")]
 
-    # 加载规则
-    rule = rule_manager.load_rule(site, database)
+        service = args.get("service", "https://lib.bit.edu.cn/sso/login/3rd?wfwfid=2398&refer=https://lib.bit.edu.cn")
+        task_id = str(uuid.uuid4())
 
-    # 执行搜索步骤
-    task_id = str(uuid.uuid4())
-    results = []
+        payload = {
+            'type': 'CAS_LOGIN',
+            'service': service,
+            'redirect_to': 'https://ss.zhizhen.com/'
+        }
 
-    for step in rule["search"]["steps"]:
-        # 替换变量
-        script = replace_variables(step, {"query": query})
-        result = await ws_server.send_task(task_id, {"script": script})
+        result = await ws_server.send_task(task_id, payload)
 
-        if not result.get("success"):
+        if result.get("success"):
             return [TextContent(
                 type="text",
-                text=f"搜索失败: {result.get('error')}"
+                text=f"✅ 登录成功，已进入发现系统搜索界面"
             )]
+        else:
+            return [TextContent(
+                type="text",
+                text=f"❌ 登录失败: {result.get('error', '未知错误')}"
+            )]
+    except Exception as e:
+        return [TextContent(type="text", text=f"❌ 登录失败: {str(e)}")]
 
-    # 提取数据
-    extract_script = rule["extract"]
-    extract_script["action"] = "extract"
-    result = await ws_server.send_task(task_id, {"script": extract_script})
+async def open_url(args: dict) -> list[TextContent]:
+    """在浏览器中打开 URL"""
+    try:
+        if not ws_server.clients:
+            return [TextContent(type="text", text="❌ 没有浏览器连接")]
 
-    if result.get("success"):
-        papers = result.get("result", [])
-        return [TextContent(
-            type="text",
-            text=f"找到 {len(papers)} 篇论文:\n\n" +
-                 "\n\n".join([format_paper(p) for p in papers])
-        )]
-    else:
-        return [TextContent(
-            type="text",
-            text=f"提取数据失败: {result.get('error')}"
-        )]
+        url = args["url"]
+        task_id = str(uuid.uuid4())
+
+        payload = {
+            'type': 'OPEN_URL',
+            'url': url
+        }
+
+        result = await ws_server.send_task(task_id, payload)
+
+        if result.get("success"):
+            return [TextContent(type="text", text=f"✅ 已打开: {url}")]
+        else:
+            return [TextContent(type="text", text=f"❌ 打开失败: {result.get('error', '未知错误')}")]
+    except Exception as e:
+        return [TextContent(type="text", text=f"❌ 打开失败: {str(e)}")]
+
+async def search_papers(args: dict) -> list[TextContent]:
+    """搜索论文"""
+    try:
+        if not ws_server.clients:
+            return [TextContent(type="text", text="❌ 没有浏览器连接")]
+
+        task_id = str(uuid.uuid4())
+        payload = {
+            'type': 'SEARCH_PAPERS',
+            **args
+        }
+
+        result = await ws_server.send_task(task_id, payload)
+
+        if result.get("success"):
+            papers = result.get("papers", [])
+            if not papers:
+                return [TextContent(type="text", text="未找到相关论文")]
+
+            text = f"找到 {len(papers)} 篇论文:\n\n"
+            for i, paper in enumerate(papers[:10], 1):
+                text += f"{i}. {paper.get('title', '无标题')}\n"
+                if paper.get('authors'):
+                    text += f"   作者: {paper['authors']}\n"
+                if paper.get('source'):
+                    text += f"   来源: {paper['source']}\n"
+                if paper.get('url'):
+                    text += f"   链接: {paper['url']}\n"
+                text += "\n"
+
+            return [TextContent(type="text", text=text)]
+        else:
+            return [TextContent(type="text", text=f"❌ 搜索失败: {result.get('error', '未知错误')}")]
+    except Exception as e:
+        return [TextContent(type="text", text=f"❌ 搜索失败: {str(e)}")]
 
 async def download_paper(args: dict) -> list[TextContent]:
     """下载论文"""

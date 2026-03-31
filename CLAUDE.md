@@ -80,3 +80,9 @@ library-access-mcp/
 - 不传输用户凭证
 - 规则需用户确认
 - 开源透明
+
+## 开发环境要求
+
+- **PowerShell**: 必须使用 PowerShell 7（pwsh.exe），不使用旧版 powershell.exe
+- **原因**: PowerShell 7 默认 UTF-8 编码，避免中文乱码和 BOM 错误
+- **执行命令**: 优先使用 `pwsh -Command` 而非 `powershell -Command`
