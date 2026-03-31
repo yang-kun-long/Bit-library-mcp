@@ -55,7 +55,8 @@ async def list_tools() -> list[Tool]:
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "query": {"type": "string", "description": "搜索关键词"},
+                    "query": {"type": "string", "description": "搜索关键词（与 adv 二选一）"},
+                    "adv": {"type": "string", "description": "直接传入专业检索表达式，优先级高于其他参数。语法示例: JN((Z='transformer')AND(2020<Y<2024)) 。字段: Z全部/T题名/A作者/K关键词/S摘要/O作者单位/Su主题/Y年份。文献类型前缀: JN期刊/BK图书/DT学位/CP会议/PT专利"},
                     "field": {"type": "string", "description": "检索字段: Z(全部)/Su(主题)/T(题名)/A(作者)/S(摘要)/K(关键词)/O(作者单位)", "default": "Z"},
                     "language": {"type": "string", "description": "语种: 空(全部)/1(中文)/2(外文)", "default": ""},
                     "doc_types": {"type": "array", "items": {"type": "integer"}, "description": "文献类型: 11(图书)/1(期刊)/13(报纸)/3(学位)/4(会议)/6(标准)/46(法规)/47(案例)/10(专利)/8(音视频)/21(成果)/85(图片)"},
@@ -63,11 +64,25 @@ async def list_tools() -> list[Tool]:
                     "year_end": {"type": "string", "description": "结束年份"},
                     "isbn": {"type": "string", "description": "ISBN"},
                     "issn": {"type": "string", "description": "ISSN"},
-                    "page_size": {"type": "integer", "description": "每页显示数量: 15/30", "default": 15},
+                    "page_size": {"type": "integer", "description": "每页显示数量: 15/30/50", "default": 15},
+                    "page": {"type": "integer", "description": "页码，从1开始", "default": 1},
+                    "sort": {"type": "integer", "description": "排序方式: 0默认/1馆藏优先/2出版日期升序/3出版日期降序/4引文量/6相关性"},
                     "only_catalog": {"type": "boolean", "description": "只显示馆藏目录"},
                     "only_eres": {"type": "boolean", "description": "只显示电子资源"}
                 },
-                "required": ["query"]
+                "required": []
+            }
+        ),
+        Tool(
+            name="get_paper_detail",
+            description="获取论文详情页的完整摘要、作者、关键词、DOI、期刊名等信息",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "url": {"type": "string", "description": "论文详情页 URL（search_papers 返回的链接）"},
+                    "dxid": {"type": "string", "description": "论文 ID（search_papers 返回的 dxid 字段），用于获取引文格式"}
+                },
+                "required": ["url"]
             }
         ),
         Tool(
@@ -94,6 +109,8 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         return await open_url(arguments)
     elif name == "search_papers":
         return await search_papers(arguments)
+    elif name == "get_paper_detail":
+        return await get_paper_detail(arguments)
     elif name == "download_paper":
         return await download_paper(arguments)
     else:
@@ -199,13 +216,26 @@ async def search_papers(args: dict) -> list[TextContent]:
             if not papers:
                 return [TextContent(type="text", text="未找到相关论文")]
 
-            text = f"找到 {len(papers)} 篇论文:\n\n"
-            for i, paper in enumerate(papers[:10], 1):
+            total = result.get("total", "")
+            page = args.get("page", 1)
+            total_str = f"（共 {total} 条）" if total else ""
+            text = f"第 {page} 页，本页 {len(papers)} 篇{total_str}:\n\n"
+            for i, paper in enumerate(papers, 1):
                 text += f"{i}. {paper.get('title', '无标题')}\n"
                 if paper.get('authors'):
                     text += f"   作者: {paper['authors']}\n"
+                if paper.get('year'):
+                    text += f"   年份: {paper['year']}\n"
                 if paper.get('source'):
                     text += f"   来源: {paper['source']}\n"
+                if paper.get('dxid'):
+                    text += f"   ID: {paper['dxid']}\n"
+                if paper.get('cited_by'):
+                    text += f"   被引量: {paper['cited_by']}\n"
+                if paper.get('keywords'):
+                    text += f"   关键词: {paper['keywords']}\n"
+                if paper.get('abstract'):
+                    text += f"   摘要: {paper['abstract'][:150]}...\n"
                 if paper.get('url'):
                     text += f"   链接: {paper['url']}\n"
                 text += "\n"
@@ -215,6 +245,41 @@ async def search_papers(args: dict) -> list[TextContent]:
             return [TextContent(type="text", text=f"❌ 搜索失败: {result.get('error', '未知错误')}")]
     except Exception as e:
         return [TextContent(type="text", text=f"❌ 搜索失败: {str(e)}")]
+
+async def get_paper_detail(args: dict) -> list[TextContent]:
+    """获取论文详情页完整信息"""
+    try:
+        if not ws_server.clients:
+            return [TextContent(type="text", text="❌ 没有浏览器连接")]
+
+        url = args["url"]
+        task_id = str(uuid.uuid4())
+        payload = {"type": "GET_PAPER_DETAIL", "url": url, "dxid": args.get("dxid", "")}
+        result = await ws_server.send_task(task_id, payload)
+
+        if result.get("success"):
+            text = ""
+            if result.get("abstract"):
+                text += f"**摘要**\n{result['abstract']}\n\n"
+            if result.get("authors"):
+                authors = result["authors"] if isinstance(result["authors"], list) else [result["authors"]]
+                text += f"**作者**: {', '.join(authors)}\n"
+            if result.get("year"):
+                text += f"**年份**: {result['year']}\n"
+            if result.get("venue"):
+                text += f"**期刊/会议**: {result['venue']}\n"
+            if result.get("keywords"):
+                kws = result["keywords"] if isinstance(result["keywords"], list) else [result["keywords"]]
+                text += f"**关键词**: {', '.join(kws)}\n"
+            if result.get("doi"):
+                text += f"**DOI**: {result['doi']}\n"
+            if result.get("citation"):
+                text += f"\n**引文格式**\n{result['citation']}\n"
+            return [TextContent(type="text", text=text or "未获取到详情")]
+        else:
+            return [TextContent(type="text", text=f"❌ 获取失败: {result.get('error', '未知错误')}")]
+    except Exception as e:
+        return [TextContent(type="text", text=f"❌ 获取失败: {str(e)}")]
 
 async def download_paper(args: dict) -> list[TextContent]:
     """下载论文"""

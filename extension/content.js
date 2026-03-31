@@ -112,90 +112,58 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       success: isLoggedIn,
       error: isLoggedIn ? null : '未找到登录标识'
     });
-  } else if (message.type === 'SEARCH_PAPERS') {
+  } else if (message.type === 'EXTRACT_RESULTS') {
+    const norm = s => (s || '').replace(/\s+/g, ' ').trim();
+    const findField = (card, label) => {
+      const li = Array.from(card.querySelectorAll('li'))
+        .find(li => norm(li.querySelector('span')?.textContent) === label);
+      return norm(li?.querySelector('.zylist_font')?.textContent);
+    };
+    const cards = document.querySelectorAll('.zyList');
+    const papers = Array.from(cards).map(card => {
+      const titleA = card.querySelector('.card_name h3 a[href*="detail_"]');
+      const source = findField(card, '出处');
+      return {
+        title: norm(titleA?.textContent),
+        url: titleA?.href || '',
+        authors: findField(card, '作者'),
+        source,
+        year: (source?.match(/\b(19|20)\d{2}\b/) || [])[0] || '',
+        keywords: findField(card, '关键词'),
+        abstract: findField(card, '摘要')
+      };
+    }).filter(p => p.title);
+    sendResponse({ success: true, papers });
+    return true;
+
+  } else if (message.type === 'EXPERT_SEARCH') {
+    // Plan B：填专业检索框 + 点击搜索
     (async () => {
       try {
-        const { query, field = 'Z', language = '', doc_types = [], year_start, year_end, isbn, issn, page_size = 15, only_catalog, only_eres } = message;
+        // 切换到专业检索 tab
+        const expertTab = document.querySelector('#secondAdvId a');
+        if (expertTab) expertTab.click();
+        await new Promise(r => setTimeout(r, 300));
 
-        // 点击高级检索
-        const advLink = document.querySelector('#adv');
-        if (advLink) advLink.click();
-        await new Promise(resolve => setTimeout(resolve, 500));
-
-        // 设置语种
-        if (language) {
-          const langCheckboxes = document.querySelectorAll('#language input[name="header_chorens"]');
-          langCheckboxes.forEach(cb => cb.checked = false);
-          const targetLang = Array.from(langCheckboxes).find(cb => cb.value === language);
-          if (targetLang) targetLang.checked = true;
+        const textarea = document.querySelector('#professtextar');
+        const btn = document.querySelector('#professbutton');
+        if (!textarea || !btn) {
+          sendResponse({ success: false, error: '未找到专业检索输入框' });
+          return;
         }
 
-        // 设置文献类型
-        if (doc_types.length > 0) {
-          const typeCheckboxes = document.querySelectorAll('#channel input[name="channel"]');
-          typeCheckboxes.forEach(cb => cb.checked = false);
-          doc_types.forEach(type => {
-            const cb = Array.from(typeCheckboxes).find(c => c.value === String(type));
-            if (cb) cb.checked = true;
-          });
-        }
+        textarea.value = message.adv;
+        btn.click();
 
-        // 设置检索字段和关键词
-        const fieldSelects = document.querySelectorAll('select[name="dept"]');
-        const inputs = document.querySelectorAll('.sForm_t .txt');
-        if (fieldSelects[0]) fieldSelects[0].value = field;
-        if (inputs[0]) inputs[0].value = query;
+        // 等待结果页加载
+        await new Promise(r => setTimeout(r, 3000));
 
-        // 设置ISBN/ISSN
-        if (isbn) {
-          const isbnInput = document.querySelector('input[name="bn"]');
-          if (isbnInput) isbnInput.value = isbn;
-        }
-        if (issn) {
-          const issnInput = document.querySelector('input[name="sn"]');
-          if (issnInput) issnInput.value = issn;
-        }
-
-        // 设置年份
-        if (year_start) {
-          const syearSelect = document.querySelector('select[name="syear"]');
-          if (syearSelect) syearSelect.value = year_start;
-        }
-        if (year_end) {
-          const eyearSelect = document.querySelector('select[name="eyear"]');
-          if (eyearSelect) eyearSelect.value = year_end;
-        }
-
-        // 设置每页显示
-        const sizeRadios = document.querySelectorAll('input[name="size"]');
-        sizeRadios.forEach(r => r.checked = r.value === String(page_size));
-
-        // 设置只显示选项
-        if (only_catalog) {
-          const catalogCb = document.querySelector('input[name="strtype"][value="3"]');
-          if (catalogCb) catalogCb.checked = true;
-        }
-        if (only_eres) {
-          const eresCb = document.querySelector('input[name="strtype"][value="4"]');
-          if (eresCb) eresCb.checked = true;
-        }
-
-        // 点击检索按钮
-        const searchBtn = document.querySelector('#advbutton');
-        if (searchBtn) searchBtn.click();
-
-        // 等待结果加载
-        await new Promise(resolve => setTimeout(resolve, 3000));
-
-        // 提取结果
         const results = [];
         const items = document.querySelectorAll('.resultList .item');
-
         items.forEach(item => {
           const titleEl = item.querySelector('.title a');
           const authorsEl = item.querySelector('.author');
           const sourceEl = item.querySelector('.source');
-
           results.push({
             title: titleEl?.textContent.trim() || '',
             url: titleEl?.href || '',

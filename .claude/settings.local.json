@@ -35,7 +35,8 @@
       "Bash(pwsh -Command \"Start-Process python -ArgumentList ''server.py'' -WorkingDirectory \\(Get-Location\\)\")",
       "Bash(pwsh -Command \"Start-Process python -ArgumentList ''server.py'' -WorkingDirectory ''D:\\\\Bit-library-mcp\\\\mcp-server''\")",
       "Bash(pwsh -Command \"Get-Process python -ErrorAction SilentlyContinue | Where-Object {$_.Path -like '*mcp-server*' -or $_.CommandLine -like '*server.py*'} | Stop-Process -Force\")",
-      "Bash(pwsh -Command \"Get-NetTCPConnection -LocalPort 8765 -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess | ForEach-Object { Stop-Process -Id $_ -Force }\")"
+      "Bash(pwsh -Command \"Get-NetTCPConnection -LocalPort 8765 -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess | ForEach-Object { Stop-Process -Id $_ -Force }\")",
+      "mcp__library-access__get_paper_detail"
     ]
   }
 }

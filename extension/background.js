@@ -64,6 +64,11 @@ function handleMessage(message) {
     return;
   }
 
+  if (type === 'GET_PAPER_DETAIL') {
+    handleGetPaperDetail(taskId, payload);
+    return;
+  }
+
   if (type === 'TASK') {
     if (payload?.type === 'CAS_LOGIN') {
       handleCasLogin(taskId, payload);
@@ -75,6 +80,10 @@ function handleMessage(message) {
     }
     if (payload?.type === 'SEARCH_PAPERS') {
       handleSearchPapers(taskId, payload);
+      return;
+    }
+    if (payload?.type === 'GET_PAPER_DETAIL') {
+      handleGetPaperDetail(taskId, payload);
       return;
     }
     // 其他 TASK 转发给 content script 执行
@@ -253,49 +262,232 @@ async function handleOpenUrl(taskId, payload) {
   }
 }
 
+// 文献类型 → 专业检索前缀
+const DOC_TYPE_PREFIX = {
+  1: 'JN', 2: 'JN',    // 期刊
+  11: 'BK', 12: 'BK',  // 图书
+  3: 'DT',             // 学位
+  4: 'CP',             // 会议
+  10: 'PT',            // 专利
+  6: 'ST',             // 标准
+  8: 'VI',             // 音视频
+  13: 'NP',            // 报纸
+  21: 'TR',            // 科技成果
+  46: 'LW',            // 法律法规
+  47: 'CA',            // 案例
+  85: 'IMG'            // 图片
+};
+
+// 文献类型 → strchannel 值（来自 onclick 参数）
+const DOC_TYPE_CHANNEL = {
+  1: '1,2', 11: '11,12', 3: '3', 4: '4',
+  10: '10', 6: '6', 8: '8', 13: '13',
+  21: '21', 46: '46', 47: '47', 85: '85'
+};
+
+function buildAdvExpr(payload) {
+  if (payload.adv) return payload.adv;
+  const { query, field = 'Z', doc_types = [], year_start, year_end } = payload;
+
+  // 基础字段表达式
+  let inner = `(${field}='${query}')`;
+
+  // 加年份
+  if (year_start || year_end) {
+    const ys = year_start || 'null';
+    const ye = year_end || 'null';
+    inner = `(${inner})AND(${ys}<Y<${ye})`;
+  }
+
+  // 加文献类型前缀
+  if (doc_types.length > 0) {
+    const prefix = DOC_TYPE_PREFIX[doc_types[0]];
+    if (prefix) inner = `${prefix}(${inner})`;
+  }
+
+  return inner;
+}
+
+function buildSearchUrl(payload) {
+  const adv = buildAdvExpr(payload);
+  const { language, doc_types = [], page_size, sort } = payload;
+
+  let url = `https://ss.zhizhen.com/s?adv=${encodeURIComponent(adv)}&aorp=a`;
+  if (language) url += `&strchoren=${language}`;
+  if (doc_types.length > 0 && DOC_TYPE_CHANNEL[doc_types[0]]) {
+    url += `&strchannel=${encodeURIComponent(DOC_TYPE_CHANNEL[doc_types[0]])}`;
+  }
+  if (page_size && page_size !== 15) url += `&size=${page_size}`;
+  if (sort !== undefined && sort !== null) url += `&isort=${sort}`;
+  return url;
+}
+
+function waitForTabComplete(tabId, timeout = 15000) {
+  return new Promise(resolve => {
+    const timer = setTimeout(() => {
+      chrome.tabs.onUpdated.removeListener(listener);
+      resolve();
+    }, timeout);
+    function listener(id, info) {
+      if (id === tabId && info.status === 'complete') {
+        clearTimeout(timer);
+        chrome.tabs.onUpdated.removeListener(listener);
+        resolve();
+      }
+    }
+    chrome.tabs.onUpdated.addListener(listener);
+  });
+}
+
 async function handleSearchPapers(taskId, payload) {
   try {
-    const query = payload.query;
-
-    // 查找发现系统的标签页
+    // 查找或使用发现系统标签页
     const tabs = await chrome.tabs.query({ url: 'https://ss.zhizhen.com/*' });
-
     if (tabs.length === 0) {
       if (ws && isConnected) {
         ws.send(JSON.stringify({
-          type: 'RESULT',
-          taskId: taskId,
+          type: 'RESULT', taskId,
           data: { success: false, error: '未找到发现系统页面，请先登录' }
         }));
       }
       return;
     }
-
     const tab = tabs[0];
 
-    // 激活并刷新标签页，确保 content script 加载
-    await chrome.tabs.update(tab.id, { active: true });
-    await chrome.tabs.reload(tab.id);
-    await new Promise(resolve => setTimeout(resolve, 2000));
+    // Plan A：直接构造结果页 URL 导航
+    const searchUrl = buildSearchUrl(payload);
+    await chrome.tabs.update(tab.id, { active: true, url: searchUrl });
+    await waitForTabComplete(tab.id);
+    await new Promise(r => setTimeout(r, 800));
 
-    // 发送搜索指令到 content script
-    const response = await chrome.tabs.sendMessage(tab.id, {
-      type: 'SEARCH_PAPERS',
-      query: query
+    // 翻页（如果需要）
+    const page = payload.page || 1;
+    if (page > 1) {
+      await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        func: (p) => { pageUtil.pages(String(p)); },
+        args: [page]
+      });
+      // pageUtil.pages 可能走 AJAX，不一定触发 navigation，用固定等待
+      await new Promise(r => setTimeout(r, 3000));
+    }
+
+    // 注入脚本：提取结果
+    const [result] = await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      func: () => {
+        const norm = s => (s || '').replace(/\s+/g, ' ').trim();
+        const findField = (card, label) => {
+          const li = Array.from(card.querySelectorAll('li'))
+            .find(li => norm(li.querySelector('span')?.textContent) === label);
+          return norm(li?.querySelector('.zylist_font')?.textContent);
+        };
+        const totalEl = document.querySelector('.cur-search-count');
+        const total = totalEl ? norm(totalEl.textContent).replace(/,/g, '') : '';
+        const cards = document.querySelectorAll('.zyList');
+        const papers = Array.from(cards).map(card => {
+          const titleA = card.querySelector('.card_name h3 a[href*="detail_"]');
+          const source = findField(card, '出处');
+          const citedEl = card.querySelector('.hitsNum a[href*="refdetail"]');
+          const cited = citedEl ? norm(citedEl.textContent).replace('被引量：', '') : '';
+          const dxid = card.querySelector('h3[data-id]')?.dataset?.id
+                    || card.querySelector('input.saveTitleBox')?.value || '';
+          return {
+            title: norm(titleA?.textContent),
+            url: titleA?.href || '',
+            dxid,
+            authors: findField(card, '作者'),
+            source,
+            year: (source?.match(/\b(19|20)\d{2}\b/) || [])[0] || '',
+            keywords: findField(card, '关键词'),
+            abstract: findField(card, '摘要'),
+            cited_by: cited
+          };
+        }).filter(p => p.title);
+        return { success: true, total, papers };
+      }
     });
+    const response = result.result;
 
     if (ws && isConnected) {
-      ws.send(JSON.stringify({
-        type: 'RESULT',
-        taskId: taskId,
-        data: response
-      }));
+      ws.send(JSON.stringify({ type: 'RESULT', taskId, data: response }));
     }
   } catch (error) {
     if (ws && isConnected) {
       ws.send(JSON.stringify({
-        type: 'RESULT',
-        taskId: taskId,
+        type: 'RESULT', taskId,
+        data: { success: false, error: error.message }
+      }));
+    }
+  }
+}
+
+async function handleGetPaperDetail(taskId, payload) {
+  let tab = null;
+  try {
+    const url = payload.url;
+    tab = await chrome.tabs.create({ url, active: false });
+    await waitForTabComplete(tab.id);
+    await new Promise(r => setTimeout(r, 800));
+
+    const [result] = await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      func: async (dxid) => {
+          const norm = s => (s || '').replace(/\s+/g, ' ').trim();
+
+          // 完整摘要
+          const absEl = document.querySelector('#detailAllAbstractId dd')
+                     || document.querySelector('#detailSubAbstractId dd');
+          const absClone = absEl?.cloneNode(true);
+          absClone?.querySelectorAll('a').forEach(a => a.remove());
+          const abstract = norm(absClone?.textContent);
+
+          // dl.card_line 字段提取
+          const findField = (label) => {
+            const dls = Array.from(document.querySelectorAll('dl.card_line'));
+            const dl = dls.find(dl => norm(dl.querySelector('dt span')?.textContent) === label);
+            return norm(dl?.querySelector('dd')?.textContent);
+          };
+          const findLinks = (label) => {
+            const dls = Array.from(document.querySelectorAll('dl.card_line'));
+            const dl = dls.find(dl => norm(dl.querySelector('dt span')?.textContent) === label);
+            return Array.from(dl?.querySelectorAll('dd a') || [])
+              .map(a => norm(a.textContent)).filter(Boolean);
+          };
+
+          const venue = ['期刊名', '会议名称', '会议名', '会议']
+            .map(findField).find(Boolean) || '';
+          const doi = findField('d  o  i');
+          const year = findField('年份');
+          const keywords = findLinks('关键词');
+          const authors = findLinks('作者').length
+            ? findLinks('作者')
+            : findField('作者')?.split(/[;；,，]/).map(s => norm(s)).filter(Boolean);
+
+          // 获取标准引文格式
+          let citation = '';
+          if (dxid) {
+            try {
+              const resp = await fetch(`/fav/outputDetailRefer?type=3&dxid=${dxid}`);
+              citation = (await resp.text()).trim();
+            } catch (_) {}
+          }
+          return { success: true, abstract, venue, doi, year, keywords, authors, citation };
+      },
+      args: [payload.dxid || '']
+    });
+
+    await chrome.tabs.remove(tab.id);
+    tab = null;
+
+    if (ws && isConnected) {
+      ws.send(JSON.stringify({ type: 'RESULT', taskId, data: result.result }));
+    }
+  } catch (error) {
+    if (tab) await chrome.tabs.remove(tab.id).catch(() => {});
+    if (ws && isConnected) {
+      ws.send(JSON.stringify({
+        type: 'RESULT', taskId,
         data: { success: false, error: error.message }
       }));
     }
