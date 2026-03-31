@@ -5,7 +5,18 @@
       "mcp__github__create_repository",
       "Bash(gh:*)",
       "Bash(git init:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git config:*)",
+      "Bash(git branch:*)",
+      "Bash(git remote:*)",
+      "Bash(git push:*)",
+      "Bash(pip install:*)",
+      "Bash(python server.py)",
+      "Bash(python:*)",
+      "Bash(netstat -ano)",
+      "Bash(findstr 8765)",
+      "mcp__library-access__ping_test"
     ]
   }
 }

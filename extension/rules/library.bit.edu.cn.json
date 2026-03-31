@@ -1,0 +1,50 @@
+{
+  "site": "library.bit.edu.cn",
+  "version": "1.0",
+  "databases": {
+    "ieee": {
+      "name": "IEEE Xplore",
+      "entry_url": "https://ieeexplore.ieee.org",
+      "search": {
+        "steps": [
+          {
+            "action": "fill_input",
+            "selector": "input.search-field",
+            "value": "{query}"
+          },
+          {
+            "action": "click",
+            "selector": "button.search-btn"
+          },
+          {
+            "action": "wait_for_selector",
+            "selector": ".List-results-items",
+            "timeout": 5000
+          }
+        ]
+      },
+      "extract": {
+        "result_items": ".List-results-items .result-item",
+        "fields": {
+          "title": {
+            "selector": "h2 a",
+            "attribute": "textContent"
+          },
+          "abstract": {
+            "selector": ".abstract-text",
+            "attribute": "textContent"
+          },
+          "pdf_url": {
+            "selector": "a[href*='stamp.jsp']",
+            "attribute": "href"
+          },
+          "authors": {
+            "selector": ".author span",
+            "attribute": "textContent",
+            "multiple": true
+          }
+        }
+      }
+    }
+  }
+}

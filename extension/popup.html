@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <style>
+    body { width: 300px; padding: 10px; font-family: sans-serif; }
+    .status { padding: 8px; border-radius: 4px; margin-bottom: 10px; }
+    .connected { background: #d4edda; color: #155724; }
+    .disconnected { background: #f8d7da; color: #721c24; }
+  </style>
+</head>
+<body>
+  <h3>Library Access MCP</h3>
+  <div id="status" class="status disconnected">未连接</div>
+  <button id="testBtn" style="width: 100%; padding: 8px; margin-top: 10px;">测试连接</button>
+  <div id="result" style="margin-top: 10px; font-size: 12px; color: #666;"></div>
+  <script src="popup.js"></script>
+</body>
+</html>
