@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find . -type f -name *.md -o -name *.json -o -name *.js -o -name *.py -o -name *.ts)",
+      "mcp__github__create_repository",
+      "Bash(gh:*)",
+      "Bash(git init:*)",
+      "Bash(git add:*)"
+    ]
+  }
+}
