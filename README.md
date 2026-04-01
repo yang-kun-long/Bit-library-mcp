@@ -30,14 +30,14 @@
 {
   "mcpServers": {
     "library-access": {
-      "command": "D:/Bit-library-mcp/mcp-server-windows-latest.exe",
+      "command": "<YOUR_DOWNLOAD_PATH>/mcp-server-windows-latest.exe",
       "args": []
     }
   }
 }
 ```
 
-*注：若使用源码运行，请将 command 改为 python，args 改为 ["path/to/server.py"]。*
+*注：请将 `<YOUR_DOWNLOAD_PATH>` 替换为 `.exe` 文件的实际存放路径。如果你从源码运行，请将 `command` 改为 `python`，并将 `args` 指向 `mcp-server/server.py` 的绝对路径。*
 
 ## 📖 文档与开发
 
