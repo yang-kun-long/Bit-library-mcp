@@ -2,31 +2,27 @@
 
 通过浏览器插件 + MCP 服务器实现 AI 工具访问需要认证的学术数据库（IEEE、Springer、CNKI 等）。
 
-## 核心特性
+## 🚀 核心特性
 
 - ✅ **复用浏览器 Session** - 无需重新登录，直接使用已登录的浏览器
+- ✅ **元数据深度抓取** - 支持提取单位、基金、核心收录、影响因子及标准引文
+- ✅ **资产自动化固化** - 自动生成论文 Markdown 笔记并同步更新研究索引 `Research/README.md`
 - ⚡ **规则引擎** - 脚本化执行，1秒/操作，无需 LLM 理解页面
 - 🔒 **本地运行** - 所有数据在本地处理，不传输凭证
-- 🎯 **AI 筛选** - LLM 只负责论文筛选，不处理网页操作
 
-## 快速开始
+## 📦 安装与部署
 
-### 1. 安装浏览器插件
+详细安装步骤请参考 [**安装指南 (INSTALL.md)**](./INSTALL.md)。
 
-1. 打开 Chrome 浏览器
-2. 访问 `chrome://extensions/`
-3. 开启"开发者模式"
-4. 点击"加载已解压的扩展程序"
-5. 选择 `extension` 目录
+### 快速开始 (推荐二进制运行)
 
-### 2. 安装 MCP 服务器
+1. 从 [Releases](https://github.com/yang-kun-long/Bit-library-mcp/releases) 下载最新版：
+   - `library-access-extension.zip` (插件压缩包)
+   - `mcp-server-windows-latest.exe` (Windows 服务端)
+2. **浏览器插件**: 在 `chrome://extensions/` 开启开发者模式，加载解压后的 `extension` 目录。
+3. **MCP 服务端**: 直接运行 `.exe` 文件（Windows）或执行 `python mcp-server/server.py`。
 
-```bash
-cd mcp-server
-pip install -r requirements.txt
-```
-
-### 3. 配置 Claude Code
+## 🛠️ 配置 AI 客户端 (Claude Code)
 
 在 Claude Code 配置中添加 MCP 服务器：
 
@@ -34,22 +30,20 @@ pip install -r requirements.txt
 {
   "mcpServers": {
     "library-access": {
-      "command": "python",
-      "args": ["D:/Bit-library-mcp/mcp-server/server.py"]
+      "command": "D:/Bit-library-mcp/mcp-server-windows-latest.exe",
+      "args": []
     }
   }
 }
 ```
 
-### 4. 使用
+*注：若使用源码运行，请将 command 改为 python，args 改为 ["path/to/server.py"]。*
 
-1. 在浏览器中登录学校图书馆
-2. 启动 Claude Code
-3. 使用工具搜索论文：
+## 📖 文档与开发
 
-```
-帮我在 IEEE 搜索关于 "transformer neural network" 的论文
-```
+- [安装指南 (INSTALL.md)](./INSTALL.md)
+- [开发与多校支持指南 (DEVELOPMENT.md)](./DEVELOPMENT.md)
+- [技术实现日志 (TECH_LOG.md)](./TECH_LOG.md)
 
 ## 架构
 
