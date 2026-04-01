@@ -28,12 +28,13 @@ async def list_tools() -> list[Tool]:
             }
         ),
         Tool(
-            name="bit_login",
-            description="自动登录北理工图书馆",
+            name="login_library",
+            description="登录图书馆以获取学术资源访问权限。支持自动登录（需要配置凭据）或手动辅助。",
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "service": {"type": "string", "description": "服务 URL，默认为图书馆", "default": "https://lib.bit.edu.cn/sso/login/3rd?wfwfid=2398&refer=https://lib.bit.edu.cn"}
+                    "university": {"type": "string", "description": "学校代码，例如 'BIT' (北京理工大学)", "default": "BIT"},
+                    "service": {"type": "string", "description": "特定的服务 URL", "default": "https://lib.bit.edu.cn/sso/login/3rd?wfwfid=2398&refer=https://lib.bit.edu.cn"}
                 },
                 "required": []
             }
@@ -86,6 +87,21 @@ async def list_tools() -> list[Tool]:
             }
         ),
         Tool(
+            name="persist_paper",
+            description="将抓取的论文元数据固化到本地 Research/ 目录",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "paper_data": {
+                        "type": "object",
+                        "description": "由 get_paper_detail 或 search_papers 返回的论文数据对象",
+                        "required": ["title"]
+                    }
+                },
+                "required": ["paper_data"]
+            }
+        ),
+        Tool(
             name="download_paper",
             description="下载论文 PDF",
             inputSchema={
@@ -103,8 +119,8 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
     """执行 MCP 工具"""
     if name == "ping_test":
         return await ping_test()
-    elif name == "bit_login":
-        return await bit_login(arguments)
+    elif name == "login_library":
+        return await login_library(arguments)
     elif name == "open_url":
         return await open_url(arguments)
     elif name == "search_papers":
@@ -113,6 +129,8 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         return await get_paper_detail(arguments)
     elif name == "download_paper":
         return await download_paper(arguments)
+    elif name == "persist_paper":
+        return await persist_paper(arguments)
     else:
         raise ValueError(f"未知工具: {name}")
 
@@ -144,19 +162,20 @@ async def ping_test() -> list[TextContent]:
     except Exception as e:
         return [TextContent(type="text", text=f"❌ 测试失败: {str(e)}")]
 
-async def bit_login(args: dict) -> list[TextContent]:
-    """北理工 CAS 登录并进入发现系统"""
+async def login_library(args: dict) -> list[TextContent]:
+    """登录图书馆"""
     try:
         if not ws_server.clients:
             return [TextContent(type="text", text="❌ 没有浏览器连接")]
 
+        university = args.get("university", "BIT")
         service = args.get("service", "https://lib.bit.edu.cn/sso/login/3rd?wfwfid=2398&refer=https://lib.bit.edu.cn")
         task_id = str(uuid.uuid4())
 
         payload = {
-            'type': 'CAS_LOGIN',
-            'service': service,
-            'redirect_to': 'https://ss.zhizhen.com/'
+            'type': 'LOGIN_LIBRARY',
+            'university': university,
+            'service': service
         }
 
         result = await ws_server.send_task(task_id, payload)
@@ -164,7 +183,7 @@ async def bit_login(args: dict) -> list[TextContent]:
         if result.get("success"):
             return [TextContent(
                 type="text",
-                text=f"✅ 登录成功，已进入发现系统搜索界面"
+                text=f"✅ {university} 登录成功"
             )]
         else:
             return [TextContent(
@@ -261,20 +280,55 @@ async def get_paper_detail(args: dict) -> list[TextContent]:
             text = ""
             if result.get("abstract"):
                 text += f"**摘要**\n{result['abstract']}\n\n"
+
             if result.get("authors"):
                 authors = result["authors"] if isinstance(result["authors"], list) else [result["authors"]]
                 text += f"**作者**: {', '.join(authors)}\n"
+
+            if result.get("affiliation"):
+                text += f"**单位**: {result['affiliation']}\n"
+
             if result.get("year"):
                 text += f"**年份**: {result['year']}\n"
-            if result.get("venue"):
-                text += f"**期刊/会议**: {result['venue']}\n"
+
+            # 出版信息合并展示
+            venue = result.get("venue", "")
+            vol = result.get("volume", "")
+            issue = result.get("issue", "")
+            pages = result.get("pages", "")
+            pub_info = venue
+            if vol: pub_info += f", {vol}"
+            if issue: pub_info += f" ({issue})"
+            if pages: pub_info += f", {pages}"
+            if pub_info:
+                text += f"**出版信息**: {pub_info}\n"
+
+            if result.get("impactFactor"):
+                text += f"**影响因子**: {result['impactFactor']}\n"
+
+            if result.get("indexing"):
+                indexing = result["indexing"] if isinstance(result["indexing"], list) else [result["indexing"]]
+                text += f"**核心收录**: {' / '.join(indexing)}\n"
+
             if result.get("keywords"):
                 kws = result["keywords"] if isinstance(result["keywords"], list) else [result["keywords"]]
                 text += f"**关键词**: {', '.join(kws)}\n"
+
+            if result.get("issn"):
+                text += f"**ISSN**: {result['issn']}\n"
+
+            if result.get("classification"):
+                text += f"**分类号**: {result['classification']}\n"
+
             if result.get("doi"):
                 text += f"**DOI**: {result['doi']}\n"
+
+            if result.get("funding"):
+                text += f"**基金项目**: {result['funding']}\n"
+
             if result.get("citation"):
                 text += f"\n**引文格式**\n{result['citation']}\n"
+
             return [TextContent(type="text", text=text or "未获取到详情")]
         else:
             return [TextContent(type="text", text=f"❌ 获取失败: {result.get('error', '未知错误')}")]
@@ -283,20 +337,101 @@ async def get_paper_detail(args: dict) -> list[TextContent]:
 
 async def download_paper(args: dict) -> list[TextContent]:
     """下载论文"""
-    url = args["url"]
-    task_id = str(uuid.uuid4())
+    # ... 原有代码保持不变 ...
 
-    script = {
-        "action": "navigate",
-        "url": url
-    }
+async def persist_paper(args: dict) -> list[TextContent]:
+    """将论文元数据固化到本地目录"""
+    import os
+    from datetime import datetime
 
-    result = await ws_server.send_task(task_id, {"script": script})
+    try:
+        paper = args.get("paper_data", {})
+        title = paper.get("title", "未知标题")
+        dxid = paper.get("dxid", "")
 
-    if result.get("success"):
-        return [TextContent(type="text", text=f"已打开下载页面: {url}")]
-    else:
-        return [TextContent(type="text", text=f"下载失败: {result.get('error')}")]
+        # 1. 准备目录
+        research_dir = os.path.join(os.getcwd(), "Research")
+        papers_dir = os.path.join(research_dir, "papers")
+        os.makedirs(papers_dir, exist_ok=True)
+
+        # 2. 生成文件名
+        clean_title = "".join([c for c in title if c.isalnum() or c in " _-"]).strip().replace(" ", "_")
+        filename = f"{dxid}_{clean_title[:30]}.md"
+        file_path = os.path.join(papers_dir, filename)
+
+        # 3. 构造 Markdown 内容
+        authors = paper.get("authors", [])
+        authors_str = ", ".join(authors) if isinstance(authors, list) else str(authors)
+        keywords = paper.get("keywords", [])
+        keywords_str = ", ".join(keywords) if isinstance(keywords, list) else str(keywords)
+        indexing = paper.get("indexing", [])
+        indexing_str = " / ".join(indexing) if isinstance(indexing, list) else str(indexing)
+
+        content = f"# {title}\n\n"
+        content += "## 基本信息\n"
+        content += f"- **标题**: {title}\n"
+        content += f"- **作者**: {authors_str}\n"
+        content += f"- **单位**: {paper.get('affiliation', '(未获取)')}\n"
+        content += f"- **年份**: {paper.get('year', '')}\n"
+
+        venue = paper.get("venue", "")
+        vol = paper.get("volume", "")
+        issue = paper.get("issue", "")
+        pages = paper.get("pages", "")
+        pub_info = venue
+        if vol: pub_info += f", {vol}"
+        if issue: pub_info += f" ({issue})"
+        if pages: pub_info += f", {pages}"
+        content += f"- **出版信息**: {pub_info}\n"
+        content += f"- **ID (dxid)**: {dxid}\n"
+        content += f"- **ISSN**: {paper.get('issn', '')}\n"
+        content += f"- **DOI**: {paper.get('doi', '(未获取)')}\n\n"
+
+        content += "## 学术指标\n"
+        content += f"- **核心收录**: {indexing_str}\n"
+        content += f"- **影响因子**: {paper.get('impactFactor', '')}\n"
+        content += f"- **被引量**: {paper.get('cited_by', '')}\n\n"
+
+        content += "## 内容摘要\n"
+        content += f"{paper.get('abstract', '无摘要')}\n\n"
+
+        content += "## 关键词\n"
+        content += f"{keywords_str}\n\n"
+
+        if paper.get('funding'):
+            content += "## 基金项目\n"
+            content += f"{paper.get('funding')}\n\n"
+
+        if paper.get('citation'):
+            content += "## 引文格式\n"
+            content += f"`{paper.get('citation')}`\n\n"
+
+        content += "---\n## AI 笔记 / 阅读记录\n*待补充*\n"
+
+        # 4. 写入文件
+        with open(file_path, "w", encoding="utf-8") as f:
+            f.write(content)
+
+        # 5. 更新索引 README.md
+        readme_path = os.path.join(research_dir, "README.md")
+        date_str = datetime.now().strftime("%Y-%m-%d")
+        rel_path = f"papers/{filename}"
+        new_row = f"| {date_str} | [{title}]({rel_path}) | {indexing_str} | {keywords_str[:30]} | {dxid} |\n"
+
+        if os.path.exists(readme_path):
+            with open(readme_path, "a", encoding="utf-8") as f:
+                f.write(new_row)
+        else:
+            with open(readme_path, "w", encoding="utf-8") as f:
+                f.write("# 学术研究记录与文献库 (Research Journal)\n\n")
+                f.write("| 固化日期 | 论文标题 | 核心收录 | 关键词 | ID (dxid) |\n")
+                f.write("| :--- | :--- | :--- | :--- | :--- |\n")
+                f.write(new_row)
+
+        return [TextContent(type="text", text=f"✅ 资产固化成功:\n文件: {file_path}\n索引已更新")]
+
+    except Exception as e:
+        return [TextContent(type="text", text=f"❌ 固化失败: {str(e)}")]
 
 def replace_variables(script: dict, variables: dict) -> dict:
     """替换脚本中的变量"""

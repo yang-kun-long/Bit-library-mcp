@@ -81,5 +81,3 @@ async function buildLoginUrl(service, ticket, isWebVpn = false) {
   jumpUrl.searchParams.set('ticket', ticket);
   return jumpUrl.toString();
 }
-
-// service worker 中 importScripts 会自动导出全局函数，无需挂载到 window

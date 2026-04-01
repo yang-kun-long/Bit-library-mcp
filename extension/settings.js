@@ -21,36 +21,52 @@ function encryptPassword(pwd) {
 }
 
 // 加载已保存的配置
-chrome.storage.local.get(['username', 'password'], (result) => {
+chrome.storage.local.get(['username', 'password', 'university'], (result) => {
+  if (result.university) {
+    document.getElementById('university').value = result.university;
+    toggleFields(result.university);
+  }
   if (result.username) {
     document.getElementById('username').value = result.username;
   }
   if (result.password) {
-    document.getElementById('password').value = '******'; // 不显示真实密码
+    document.getElementById('password').value = '******';
   }
+});
+
+function toggleFields(uni) {
+  const fields = document.getElementById('auto-login-fields');
+  if (uni === 'BIT') {
+    fields.classList.remove('hidden');
+  } else {
+    fields.classList.add('hidden');
+  }
+}
+
+document.getElementById('university').addEventListener('change', (e) => {
+  toggleFields(e.target.value);
 });
 
 // 保存配置
 document.getElementById('saveBtn').addEventListener('click', () => {
+  const university = document.getElementById('university').value;
   const username = document.getElementById('username').value.trim();
   const password = document.getElementById('password').value;
 
-  if (!username || !password) {
-    alert('请填写完整信息');
-    return;
+  const config = { university };
+
+  if (university === 'BIT') {
+    if (!username || !password) {
+      alert('请填写完整信息');
+      return;
+    }
+    config.username = username;
+    if (password !== '******') {
+      config.password = encryptPassword(password);
+    }
   }
 
-  if (password === '******') {
-    document.getElementById('message').innerHTML = '<div class="success">设置已保存（密码未修改）</div>';
-    return;
-  }
-
-  const encryptedPwd = encryptPassword(password);
-
-  chrome.storage.local.set({
-    username: username,
-    password: encryptedPwd
-  }, () => {
+  chrome.storage.local.set(config, () => {
     document.getElementById('message').innerHTML = '<div class="success">设置已保存</div>';
     setTimeout(() => {
       document.getElementById('message').innerHTML = '';

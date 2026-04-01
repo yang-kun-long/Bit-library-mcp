@@ -3,8 +3,13 @@ let ws = null;
 let isConnected = false;
 let pending_tasks = {};
 
-// 导入 CAS 登录模块
-importScripts('cas-login.js');
+// 导入依赖
+importScripts(
+  'cas-login.js',
+  'providers/base-provider.js',
+  'providers/bit-provider.js',
+  'providers/manual-provider.js'
+);
 
 // 连接到 MCP 服务器
 function connectToMCP() {
@@ -16,9 +21,13 @@ function connectToMCP() {
   };
 
   ws.onmessage = (event) => {
-    const message = JSON.parse(event.data);
-    console.log('[MCP] 收到消息:', message);
-    handleMessage(message);
+    try {
+      const message = JSON.parse(event.data);
+      console.log('[MCP] 收到原始消息:', message);
+      handleMessage(message);
+    } catch (e) {
+      console.error('[MCP] 解析消息失败:', e, event.data);
+    }
   };
 
   ws.onerror = (error) => {
@@ -39,228 +48,127 @@ setInterval(() => {
   }
 }, 20000); // 每 20 秒发送一次
 
-// 处理来自 MCP 服务器的消息
-function handleMessage(message) {
-  const { type, taskId, payload } = message;
+// 实例化 Providers
+const Providers = {
+  'BIT': new BitProvider(),
+  'MANUAL': new ManualProvider()
+};
 
-  if (type === 'PONG') {
-    // 标记 PONG 收到
-    pending_tasks[taskId] = true;
-    return;
-  }
-
-  if (type === 'CAS_LOGIN') {
-    handleCasLogin(taskId, payload);
-    return;
-  }
-
-  if (type === 'OPEN_URL') {
-    handleOpenUrl(taskId, payload);
-    return;
-  }
-
-  if (type === 'SEARCH_PAPERS') {
-    handleSearchPapers(taskId, payload);
-    return;
-  }
-
-  if (type === 'GET_PAPER_DETAIL') {
-    handleGetPaperDetail(taskId, payload);
-    return;
-  }
-
-  if (type === 'TASK') {
-    if (payload?.type === 'CAS_LOGIN') {
-      handleCasLogin(taskId, payload);
-      return;
-    }
-    if (payload?.type === 'OPEN_URL') {
-      handleOpenUrl(taskId, payload);
-      return;
-    }
-    if (payload?.type === 'SEARCH_PAPERS') {
-      handleSearchPapers(taskId, payload);
-      return;
-    }
-    if (payload?.type === 'GET_PAPER_DETAIL') {
-      handleGetPaperDetail(taskId, payload);
-      return;
-    }
-    // 其他 TASK 转发给 content script 执行
-    chrome.tabs.query({}, (tabs) => {
-      tabs.forEach(tab => {
-        chrome.tabs.sendMessage(tab.id, {
-          type: 'MCP_TASK',
-          taskId,
-          payload
-        }).catch(() => {});
-      });
-    });
-    return;
-  }
+async function getActiveProvider() {
+  const config = await chrome.storage.local.get(['university']);
+  const uni = config.university || 'BIT';
+  return Providers[uni] || Providers['BIT'];
 }
 
-// 接收来自 content script 和 popup 的消息
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (message.type === 'EXECUTE_SCRIPT') {
-    // 转发给 MCP 服务器
-    if (ws && isConnected) {
-      ws.send(JSON.stringify({
-        type: 'RESULT',
-        taskId: message.taskId,
-        data: message.data
-      }));
-    }
-  } else if (message.type === 'EXECUTE_CAS_LOGIN') {
-    // content script 请求执行 CAS 登录
-    (async () => {
-      try {
-        const ticket = await casLogin(message.service);
-        const loginUrl = await buildLoginUrl(message.service, ticket, message.isWebVpn);
-
-        // 回复给 content script
-        sendResponse({ success: true, loginUrl });
-      } catch (error) {
-        sendResponse({ success: false, error: error.message });
-      }
-    })();
-    return true; // 异步响应
-  } else if (message.type === 'CAS_LOGIN_SUCCESS') {
-    // CAS 登录成功，记录登录 URL（如果需要跳转到发现系统，会在 handleCasLogin 中处理）
-    console.log('[CAS Login] 登录成功:', message.loginUrl);
-  } else if (message.type === 'CHECK_STATUS') {
-    sendResponse({ connected: isConnected });
-  } else if (message.type === 'PING_TEST') {
-    // 测试连接
-    if (ws && isConnected) {
-      const startTime = Date.now();
-      const testId = 'ping-' + Date.now();
-
-      ws.send(JSON.stringify({
-        type: 'PING',
-        taskId: testId
-      }));
-
-      // 等待 PONG
-      const checkPong = setInterval(() => {
-        if (pending_tasks[testId]) {
-          clearInterval(checkPong);
-          const time = Date.now() - startTime;
-          delete pending_tasks[testId];
-          sendResponse({ success: true, time });
+// 检查发现系统是否已登录
+async function checkDiscoveryAuth() {
+  const provider = await getActiveProvider();
+  return new Promise((resolve) => {
+    chrome.tabs.create({ url: provider.getDiscoveryUrl(), active: false }, (tab) => {
+      const check = setInterval(async () => {
+        const response = await provider.checkAuth(tab.id);
+        if (chrome.runtime.lastError) return;
+        if (response && response.success) {
+          clearInterval(check);
+          chrome.tabs.remove(tab.id);
+          resolve(response);
         }
-      }, 100);
-
+      }, 1000);
       setTimeout(() => {
-        clearInterval(checkPong);
-        sendResponse({ success: false });
-      }, 5000);
-    } else {
-      sendResponse({ success: false });
-    }
-  }
-  return true;
-});
+        clearInterval(check);
+        chrome.tabs.remove(tab.id).catch(() => {});
+        resolve({ success: false });
+      }, 10000);
+    });
+  });
+}
 
+// 处理来自 MCP 服务器的消息
+async function handleMessage(msg) {
+  console.log('[MCP] handleMessage 收到:', msg);
+  let type = msg.type;
+  let taskId = msg.taskId;
+  let payload = msg.payload;
+
+  // 如果是包装好的任务，解包任务类型并保持 payload 指向内部数据
+  if (type === 'TASK') {
+    console.log('[MCP] 解包 TASK:', payload.type);
+    type = payload.type;
+    // 注意：这里的 payload 已经是内部对象了，不需要再次赋值
+  }
+
+  try {
+    if (type === 'PING') {
+      ws.send(JSON.stringify({ type: 'PONG', taskId }));
+      return;
+    }
+
+    console.log(`[MCP] 执行指令: ${type}, 任务ID: ${taskId}`);
+    const provider = await getActiveProvider();
+
+    if (type === 'CHECK_AUTH') {
+      const result = await checkDiscoveryAuth();
+      ws.send(JSON.stringify({ type: 'RESULT', taskId, data: result }));
+    } else if (type === 'SYNC_SESSION') {
+      await provider.syncSession();
+      ws.send(JSON.stringify({ type: 'RESULT', taskId, data: { success: true } }));
+    } else if (type === 'LOGIN' || type === 'LOGIN_LIBRARY') {
+      const result = await provider.login(taskId, payload);
+      ws.send(JSON.stringify({ type: 'RESULT', taskId, data: result }));
+    } else if (type === 'SEARCH_PAPERS') {
+      await handleSearchPapers(taskId, payload);
+    } else if (type === 'GET_PAPER_DETAIL') {
+      console.log('[MCP] 正在调用 handleGetPaperDetail');
+      await handleGetPaperDetail(taskId, payload);
+    } else if (type === 'OPEN_URL') {
+      console.log('[MCP] 正在执行 chrome.tabs.create:', payload.url);
+      chrome.tabs.create({ url: payload.url });
+      ws.send(JSON.stringify({ type: 'RESULT', taskId, data: { success: true } }));
+    } else if (type === 'DOWNLOAD_PAPER') {
+      chrome.tabs.create({ url: payload.url });
+      ws.send(JSON.stringify({ type: 'RESULT', taskId, data: { success: true } }));
+    }
+  } catch (error) {
+    console.error('[MCP] handleMessage 处理出错:', error);
+    ws.send(JSON.stringify({
+      type: 'RESULT',
+      taskId,
+      data: { success: false, error: error.message }
+    }));
+  }
+}
+
+// 处理自动登录流程 (由 provider.login 调用)
 async function handleCasLogin(taskId, payload) {
-  try {
-    const service = payload.service;
-    const redirectTo = payload.redirect_to;
+  const { service, isWebVpn } = payload;
+  const ticket = await casLogin(service);
+  const loginUrl = await buildLoginUrl(service, ticket, isWebVpn);
 
-    // 构建 CAS 登录页 URL
-    const casLoginUrl = `https://sso.bit.edu.cn/cas/login?service=${encodeURIComponent(service)}`;
-
-    // 打开 CAS 登录页
-    const tab = await chrome.tabs.create({ url: casLoginUrl });
-
-    // 等待页面加载并执行登录
-    const listener = async (message, sender) => {
-      if (message.type === 'CAS_PAGE_READY' && sender.tab?.id === tab.id) {
-        chrome.runtime.onMessage.removeListener(listener);
-
-        // 通知 content script 执行登录（会跳转到图书馆）
-        chrome.tabs.sendMessage(tab.id, { type: 'DO_CAS_LOGIN' });
-
-        // 等待图书馆页面加载完成，然后新建标签页打开发现系统
-        if (redirectTo) {
-          setTimeout(async () => {
-            const newTab = await chrome.tabs.create({ url: redirectTo });
-
-            // 等待发现系统页面加载并验证登录状态
-            setTimeout(async () => {
-              try {
-                const result = await chrome.tabs.sendMessage(newTab.id, { type: 'CHECK_LOGIN_STATUS' });
-
-                if (ws && isConnected) {
-                  ws.send(JSON.stringify({
-                    type: 'RESULT',
-                    taskId: taskId,
-                    data: result
-                  }));
-                }
-              } catch (error) {
-                if (ws && isConnected) {
-                  ws.send(JSON.stringify({
-                    type: 'RESULT',
-                    taskId: taskId,
-                    data: { success: false, error: '验证登录状态失败' }
-                  }));
-                }
-              }
-            }, 5000);
-          }, 3000);
-        } else {
-          if (ws && isConnected) {
-            ws.send(JSON.stringify({
-              type: 'RESULT',
-              taskId: taskId,
-              data: { success: true, message: '正在登录...' }
-            }));
+  return new Promise((resolve, reject) => {
+    chrome.tabs.create({ url: loginUrl, active: false }, (tab) => {
+      const check = setInterval(() => {
+        chrome.tabs.get(tab.id, (t) => {
+          if (chrome.runtime.lastError) {
+            clearInterval(check);
+            reject(new Error('Tab closed'));
+            return;
           }
-        }
-      }
-    };
-
-    chrome.runtime.onMessage.addListener(listener);
-
-    // 超时处理
-    setTimeout(() => {
-      chrome.runtime.onMessage.removeListener(listener);
-    }, 15000);
-
-  } catch (error) {
-    if (ws && isConnected) {
-      ws.send(JSON.stringify({
-        type: 'RESULT',
-        taskId: taskId,
-        data: { success: false, error: error.message }
-      }));
-    }
-  }
+          if (t.status === 'complete' && !t.url.includes('cas/login')) {
+            clearInterval(check);
+            setTimeout(() => { chrome.tabs.remove(tab.id); resolve({ success: true }); }, 2000);
+          }
+        });
+      }, 1000);
+      setTimeout(() => {
+        clearInterval(check);
+        chrome.tabs.remove(tab.id).catch(() => {});
+        reject(new Error('Login timeout'));
+      }, 30000);
+    });
+  });
 }
 
-async function handleOpenUrl(taskId, payload) {
-  try {
-    const url = payload.url;
-    await chrome.tabs.create({ url: url });
-
-    if (ws && isConnected) {
-      ws.send(JSON.stringify({
-        type: 'RESULT',
-        taskId: taskId,
-        data: { success: true }
-      }));
-    }
-  } catch (error) {
-    if (ws && isConnected) {
-      ws.send(JSON.stringify({
-        type: 'RESULT',
-        taskId: taskId,
-        data: { success: false, error: error.message }
-      }));
-    }
-  }
-}
+// --- 搜索和详情提取逻辑 ---
 
 // 文献类型 → 专业检索前缀
 const DOC_TYPE_PREFIX = {
@@ -354,7 +262,7 @@ async function handleSearchPapers(taskId, payload) {
     }
     const tab = tabs[0];
 
-    // Plan A：直接构造结果页 URL 导航
+    // 直接构造结果页 URL 导航
     const searchUrl = buildSearchUrl(payload);
     await chrome.tabs.update(tab.id, { active: true, url: searchUrl });
     await waitForTabComplete(tab.id);
@@ -368,7 +276,6 @@ async function handleSearchPapers(taskId, payload) {
         func: (p) => { pageUtil.pages(String(p)); },
         args: [page]
       });
-      // pageUtil.pages 可能走 AJAX，不一定触发 navigation，用固定等待
       await new Promise(r => setTimeout(r, 3000));
     }
 
@@ -390,8 +297,7 @@ async function handleSearchPapers(taskId, payload) {
           const source = findField(card, '出处');
           const citedEl = card.querySelector('.hitsNum a[href*="refdetail"]');
           const cited = citedEl ? norm(citedEl.textContent).replace('被引量：', '') : '';
-          const dxid = card.querySelector('h3[data-id]')?.dataset?.id
-                    || card.querySelector('input.saveTitleBox')?.value || '';
+          const dxid = card.querySelector('h3[data-id]')?.dataset?.id || new URL(titleA?.href || '').searchParams.get('dxid');
           return {
             title: norm(titleA?.textContent),
             url: titleA?.href || '',
@@ -425,15 +331,59 @@ async function handleSearchPapers(taskId, payload) {
 async function handleGetPaperDetail(taskId, payload) {
   let tab = null;
   try {
-    const url = payload.url;
-    tab = await chrome.tabs.create({ url, active: false });
-    await waitForTabComplete(tab.id);
-    await new Promise(r => setTimeout(r, 800));
+    console.log('[MCP] 开始抓取详情:', payload.url);
+    tab = await new Promise((resolve) => {
+      chrome.tabs.create({ url: payload.url, active: true }, resolve);
+    });
+
+    // 等待页面加载完成
+    console.log('[MCP] 等待标签页加载:', tab.id);
+    await Promise.race([
+      new Promise((resolve) => {
+        const check = setInterval(() => {
+          chrome.tabs.get(tab.id, (t) => {
+            if (chrome.runtime.lastError) {
+              console.log('[MCP] 标签页获取失败 (可能已关闭)');
+              clearInterval(check); resolve(); return;
+            }
+            if (t.status === 'complete') {
+              console.log('[MCP] 标签页加载完成');
+              clearInterval(check); resolve();
+            }
+          });
+        }, 500);
+      }),
+      new Promise(resolve => setTimeout(() => {
+        console.log('[MCP] 等待加载超时 (15s)');
+        resolve();
+      }, 15000))
+    ]);
+
+    await new Promise(r => setTimeout(r, 1000));
+    console.log('[MCP] 准备执行提取脚本');
 
     const [result] = await chrome.scripting.executeScript({
       target: { tabId: tab.id },
       func: async (dxid) => {
-          const norm = s => (s || '').replace(/\s+/g, ' ').trim();
+          try {
+              console.log('[Injected] 脚本开始执行');
+          // 调试：打印页面所有文本和结构信息
+          console.log('[Injected] 页面标题:', document.title);
+          console.log('[Injected] 页面 URL:', location.href);
+          const bodyText = document.body.innerText;
+          console.log('[Injected] 页面文本内容片段:', bodyText.substring(0, 1000));
+
+          // 检查常见的容器
+          const containers = {
+            '#detailAllAbstractId': !!document.querySelector('#detailAllAbstractId'),
+            'dl.card_line count': document.querySelectorAll('dl.card_line').length,
+            'dl.clearfix count': document.querySelectorAll('dl.clearfix').length,
+            '.zy_detail count': document.querySelectorAll('.zy_detail').length,
+            'iframe count': document.querySelectorAll('iframe').length
+          };
+          console.log('[Injected] 容器检查:', containers);
+
+          const norm = (s) => (s || '').replace(/\s+/g, ' ').trim();
 
           // 完整摘要
           const absEl = document.querySelector('#detailAllAbstractId dd')
@@ -442,48 +392,119 @@ async function handleGetPaperDetail(taskId, payload) {
           absClone?.querySelectorAll('a').forEach(a => a.remove());
           const abstract = norm(absClone?.textContent);
 
-          // dl.card_line 字段提取
+          // 增强：递归检查所有 iframe
+          const allDls = [];
+          const collectDls = (doc) => {
+            const selectors = ['dl.card_line', 'dl.clearfix', 'div.card_line', 'dl'];
+            selectors.forEach(s => {
+              allDls.push(...Array.from(doc.querySelectorAll(s)));
+            });
+            doc.querySelectorAll('iframe').forEach(frame => {
+              try {
+                if (frame.contentDocument) collectDls(frame.contentDocument);
+              } catch (e) {}
+            });
+          };
+          collectDls(document);
+          console.log('[Injected] 总计找到 DL 元素:', allDls.length);
+
+          // dl.card_line 字段提取 (增强选择器)
           const findField = (label) => {
-            const dls = Array.from(document.querySelectorAll('dl.card_line'));
-            const dl = dls.find(dl => norm(dl.querySelector('dt span')?.textContent) === label);
-            return norm(dl?.querySelector('dd')?.textContent);
+            const clean = s => (s || '').replace(/\s+/g, '');
+            const target = clean(label);
+
+            const dl = allDls.find(el => {
+              const dtText = clean(el.querySelector('dt')?.textContent || el.querySelector('span.label')?.textContent || el.querySelector('b')?.textContent);
+              return dtText && dtText.includes(target);
+            });
+
+            const dd = dl?.querySelector('dd') || dl?.querySelector('span.zylist_font') || dl?.querySelector('span');
+            return norm(dd?.textContent);
           };
           const findLinks = (label) => {
             const dls = Array.from(document.querySelectorAll('dl.card_line'));
-            const dl = dls.find(dl => norm(dl.querySelector('dt span')?.textContent) === label);
+            const clean = s => (s || '').replace(/\s+/g, '');
+            const target = clean(label);
+            const dl = dls.find(dl => clean(dl.querySelector('dt span')?.textContent) === target);
             return Array.from(dl?.querySelectorAll('dd a') || [])
               .map(a => norm(a.textContent)).filter(Boolean);
           };
 
           const venue = ['期刊名', '会议名称', '会议名', '会议']
             .map(findField).find(Boolean) || '';
-          const doi = findField('d  o  i');
+          const doi = findField('d o i');
           const year = findField('年份');
           const keywords = findLinks('关键词');
           const authors = findLinks('作者').length
             ? findLinks('作者')
             : findField('作者')?.split(/[;；,，]/).map(s => norm(s)).filter(Boolean);
 
-          // 获取标准引文格式
+          // 扩展字段提取
+          const affiliation = findField('作者单位');
+          const funding = findField('基金');
+          const volume = findField('卷号');
+          const issue = findField('期号');
+          const pages = findField('页码');
+          const issn = findField('I S S N');
+          const classification = findField('分类号');
+
+          // 提取评价指标
+          const impactFactorEl = document.querySelector('.Influence');
+          const impactFactor = impactFactorEl ? impactFactorEl.textContent.trim() : null;
+
+          const indexingEls = document.querySelectorAll('.FindLabel');
+          const indexing = Array.from(indexingEls).map(el => el.textContent.trim()).filter(Boolean);
+
+          // 获取标准引文格式 (增加超时控制)
           let citation = '';
           if (dxid) {
+            console.log('[Injected] 尝试获取引文格式, dxid:', dxid);
             try {
-              const resp = await fetch(`/fav/outputDetailRefer?type=3&dxid=${dxid}`);
+              const controller = new AbortController();
+              const timeoutId = setTimeout(() => controller.abort(), 5000);
+              const resp = await fetch(`/fav/outputDetailRefer?type=3&dxid=${dxid}`, {
+                signal: controller.signal
+              });
+              clearTimeout(timeoutId);
               citation = (await resp.text()).trim();
-            } catch (_) {}
+              console.log('[Injected] 引文获取成功');
+            } catch (e) {
+              console.log('[Injected] 引文获取失败:', e.message);
+            }
           }
-          return { success: true, abstract, venue, doi, year, keywords, authors, citation };
+          console.log('[Injected] 提取完成，返回数据');
+          } catch (e) {
+              console.error('[Injected] 脚本执行异常:', e);
+              return { success: false, error: e.message };
+          }
+          return {
+            success: true,
+            abstract, venue, doi, year, keywords, authors,
+            affiliation, funding, volume, issue, pages,
+            issn, classification, impactFactor, indexing,
+            citation
+          };
       },
       args: [payload.dxid || '']
     });
 
-    await chrome.tabs.remove(tab.id);
+    console.log('[MCP] 脚本执行结果:', result);
+    const data = (result && result[0]) ? result[0].result : result;
+
+    // 只有在成功获取到关键内容时才关闭标签页，方便调试
+    if (data && (data.abstract || (data.authors && data.authors.length))) {
+        console.log('[MCP] 抓取成功，关闭标签页');
+        await chrome.tabs.remove(tab.id);
+    } else {
+        console.log('[MCP] 未获取到关键内容，保留标签页以供检查', data);
+    }
     tab = null;
 
     if (ws && isConnected) {
-      ws.send(JSON.stringify({ type: 'RESULT', taskId, data: result.result }));
+      ws.send(JSON.stringify({ type: 'RESULT', taskId, data }));
     }
   } catch (error) {
+    console.error('[MCP] handleGetPaperDetail 发生错误:', error);
     if (tab) await chrome.tabs.remove(tab.id).catch(() => {});
     if (ws && isConnected) {
       ws.send(JSON.stringify({
@@ -494,5 +515,14 @@ async function handleGetPaperDetail(taskId, payload) {
   }
 }
 
-// 启动时连接
 connectToMCP();
+
+// 响应来自 popup 的内部消息
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (msg.type === 'CHECK_STATUS') {
+    sendResponse({ connected: isConnected });
+  } else if (msg.type === 'PING_TEST') {
+    sendResponse({ success: true });
+  }
+  return true;
+});

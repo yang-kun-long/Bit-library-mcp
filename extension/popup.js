@@ -34,8 +34,14 @@ document.getElementById('testBtn').addEventListener('click', () => {
 });
 
 // 打开图书馆按钮
-document.getElementById('openLibBtn').addEventListener('click', () => {
-  chrome.tabs.create({ url: 'https://lib.bit.edu.cn/' });
+document.getElementById('openLibBtn').addEventListener('click', async () => {
+  const config = await chrome.storage.local.get(['university']);
+  const uni = config.university || 'BIT';
+  const libUrls = {
+    'BIT': 'https://lib.bit.edu.cn/',
+    'MANUAL': 'https://ss.zhizhen.com/'
+  };
+  chrome.tabs.create({ url: libUrls[uni] || libUrls['BIT'] });
 });
 
 // 设置按钮

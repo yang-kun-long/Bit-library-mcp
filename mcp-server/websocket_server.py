@@ -29,6 +29,7 @@ class WebSocketServer:
         """处理来自浏览器插件的消息"""
         msg_type = data.get('type')
         task_id = data.get('taskId')
+        print(f"[WebSocket] 收到消息: type={msg_type}, taskId={task_id}")
 
         if msg_type == 'PING':
             # 响应 PING

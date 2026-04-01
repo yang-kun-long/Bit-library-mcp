@@ -98,20 +98,62 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         });
       });
   } else if (message.type === 'CHECK_LOGIN_STATUS') {
-    const welcomeLinks = document.querySelectorAll('a[href="#"]');
     let isLoggedIn = false;
+    let error = null;
 
-    for (const link of welcomeLinks) {
-      if (link.textContent.includes('欢迎来自北京理工大学的朋友')) {
+    if (location.hostname === 'lib.bit.edu.cn') {
+      // 图书馆首页登录检测
+      const loginedEl = document.getElementById('logined');
+      const loginBtn = document.getElementById('id-login');
+
+      if (loginedEl && getComputedStyle(loginedEl).display !== 'none') {
         isLoggedIn = true;
-        break;
+      } else if (loginBtn) {
+        isLoggedIn = false;
+        error = '未登录';
+      } else {
+        error = '未找到登录状态标识';
+      }
+    } else if (location.hostname === 'ss.zhizhen.com') {
+      // 发现系统登录检测
+      const welcomeLinks = document.querySelectorAll('a[href="#"]');
+      for (const link of welcomeLinks) {
+        if (link.textContent.includes('欢迎来自北京理工大学的朋友')) {
+          isLoggedIn = true;
+          break;
+        }
+      }
+      if (!isLoggedIn) {
+        // 备选方案：检查整个页面的文字
+        if (document.body.textContent.includes('欢迎来自北京理工大学的朋友')) {
+          isLoggedIn = true;
+        } else {
+          error = '超星发现页未登录';
+        }
       }
     }
 
     sendResponse({
       success: isLoggedIn,
-      error: isLoggedIn ? null : '未找到登录标识'
+      error: isLoggedIn ? null : error
     });
+  } else if (message.type === 'PERFORM_UNIFIED_SEARCH') {
+    // 执行统一检索（兜底逻辑：触发 session 同步）
+    try {
+      const input = document.querySelector('.ipt-box .ipt');
+      const btn = document.querySelector('.btn-search[onclick*="searchTemp47.link"]');
+
+      if (input && btn) {
+        input.value = 'AI Search';
+        btn.click();
+        sendResponse({ success: true });
+      } else {
+        sendResponse({ success: false, error: '未找到统一检索框或搜索按钮' });
+      }
+    } catch (e) {
+      sendResponse({ success: false, error: e.message });
+    }
+    return true;
   } else if (message.type === 'EXTRACT_RESULTS') {
     const norm = s => (s || '').replace(/\s+/g, ' ').trim();
     const findField = (card, label) => {
