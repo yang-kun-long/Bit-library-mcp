@@ -16,7 +16,7 @@
 
 ### 快速开始 (推荐二进制运行)
 
-1. 从 [Releases](https://github.com/yang-kun-long/Bit-library-mcp/releases) 下载最新版：
+1. 从 [Releases](https://github.com/yang-kun-long/library-access-mcp/releases) 下载最新版：
    - `library-access-extension.zip` (插件压缩包)
    - `mcp-server-windows-latest.exe` (Windows 服务端)
 2. **浏览器插件**: 在 `chrome://extensions/` 开启开发者模式，加载解压后的 `extension` 目录。

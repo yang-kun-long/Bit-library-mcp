@@ -4,7 +4,7 @@
 
 ## 1. 下载组件 (Download)
 
-从 GitHub [Releases](https://github.com/yang-kun-long/Bit-library-mcp/releases) 页面下载以下文件：
+从 GitHub [Releases](https://github.com/yang-kun-long/library-access-mcp/releases) 页面下载以下文件：
 - `library-access-extension.zip` (浏览器插件)
 - `mcp-server-windows-latest.exe` (如果你是 Windows 用户) 或 `mcp-server-ubuntu-latest` (如果你是 Linux 用户)
 
