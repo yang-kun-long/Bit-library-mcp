@@ -81,23 +81,23 @@ class WebSocketServer:
     async def check_existing_instance(self, port: int) -> bool:
         """检查指定端口是否有 MCP 服务器运行（任何实例）"""
         try:
-            async with websockets.connect(f"ws://{self.host}:{port}", timeout=3) as ws:
-                # 发送检查请求
+            ws = await asyncio.wait_for(
+                websockets.connect(f"ws://{self.host}:{port}"),
+                timeout=0.5  # 500ms 足够了
+            )
+            try:
                 await ws.send(json.dumps({'type': 'INSTANCE_CHECK'}))
-                # 等待响应
-                try:
-                    response = await asyncio.wait_for(ws.recv(), timeout=3)
-                    data = json.loads(response)
-                    # 只要有响应 INSTANCE_RESPONSE，就认为有实例在运行
-                    if data.get('type') == 'INSTANCE_RESPONSE':
-                        print(f"[WebSocket] 端口 {port} 检测到实例: {data.get('instanceId', 'unknown')[:8]}")
-                        return True
-                except asyncio.TimeoutError:
-                    print(f"[WebSocket] 端口 {port} 响应超时")
-                    return False
+                response = await asyncio.wait_for(ws.recv(), timeout=0.5)
+                data = json.loads(response)
+                if data.get('type') == 'INSTANCE_RESPONSE':
+                    print(f"[WebSocket] 端口 {port} 检测到实例: {data.get('instanceId', 'unknown')[:8]}")
+                    return True
+            finally:
+                await ws.close()
+        except (asyncio.TimeoutError, ConnectionRefusedError, OSError):
+            pass
         except Exception as e:
-            # 连接失败说明端口没有 WebSocket 服务或不可达
-            return False
+            print(f"[WebSocket] 端口 {port} 检查异常: {e}")
         return False
 
     async def find_available_port(self, start_port: int, max_attempts: int = 10) -> int:
