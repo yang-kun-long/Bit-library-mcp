@@ -12,54 +12,15 @@ importScripts(
   'providers/manual-provider.js'
 );
 
-// 尝试连接到指定端口
-async function tryConnect(port) {
-  return new Promise((resolve) => {
-    const testWs = new WebSocket(`ws://localhost:${port}`);
-    const timeout = setTimeout(() => {
-      testWs.close();
-      resolve(false);
-    }, 2000);
-
-    testWs.onopen = () => {
-      clearTimeout(timeout);
-      testWs.close();
-      resolve(true);
-    };
-
-    testWs.onerror = () => {
-      clearTimeout(timeout);
-      resolve(false);
-    };
-  });
-}
-
-// 查找可用的 MCP 服务器端口
-async function findMCPPort() {
-  for (let port = 8765; port < 8775; port++) {
-    if (await tryConnect(port)) {
-      console.log(`[MCP] 找到服务器在端口 ${port}`);
-      return port;
-    }
-  }
-  return null;
-}
-
-// 连接到 MCP 服务器
+// 连接到 MCP 服务器（从 storage 读端口，默认 8765）
 async function connectToMCP() {
-  // 查找可用端口
-  const port = await findMCPPort();
-  if (!port) {
-    console.log('[MCP] 未找到可用服务器，5秒后重试');
-    setTimeout(connectToMCP, 5000);
-    return;
-  }
+  const config = await chrome.storage.local.get(['mcpPort']);
+  currentPort = config.mcpPort || 8765;
 
-  currentPort = port;
   ws = new WebSocket(`ws://localhost:${currentPort}`);
 
   ws.onopen = () => {
-    console.log('[MCP] 已连接到服务器');
+    console.log(`[MCP] 已连接到服务器 (端口 ${currentPort})`);
     isConnected = true;
   };
 
@@ -143,6 +104,13 @@ async function handleMessage(msg) {
   try {
     if (type === 'PING') {
       ws.send(JSON.stringify({ type: 'PONG', taskId }));
+      return;
+    }
+
+    if (type === 'PONG') {
+      if (pending_tasks[taskId]) {
+        pending_tasks[taskId]();
+      }
       return;
     }
 
@@ -516,10 +484,6 @@ async function handleGetPaperDetail(taskId, payload) {
             }
           }
           console.log('[Injected] 提取完成，返回数据');
-          } catch (e) {
-              console.error('[Injected] 脚本执行异常:', e);
-              return { success: false, error: e.message };
-          }
           return {
             success: true,
             abstract, venue, doi, year, keywords, authors,
@@ -527,12 +491,16 @@ async function handleGetPaperDetail(taskId, payload) {
             issn, classification, impactFactor, indexing,
             citation
           };
+          } catch (e) {
+              console.error('[Injected] 脚本执行异常:', e);
+              return { success: false, error: e.message };
+          }
       },
       args: [payload.dxid || '']
     });
 
     console.log('[MCP] 脚本执行结果:', result);
-    const data = (result && result[0]) ? result[0].result : result;
+    const data = result?.result ?? result;
 
     // 只有在成功获取到关键内容时才关闭标签页，方便调试
     if (data && (data.abstract || (data.authors && data.authors.length))) {
@@ -563,9 +531,29 @@ connectToMCP();
 // 响应来自 popup 的内部消息
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type === 'CHECK_STATUS') {
-    sendResponse({ connected: isConnected });
-  } else if (msg.type === 'PING_TEST') {
+    sendResponse({ connected: isConnected, port: currentPort });
+  } else if (msg.type === 'RECONNECT') {
+    if (ws) { ws.onclose = null; ws.close(); }
+    isConnected = false;
+    connectToMCP();
     sendResponse({ success: true });
+  } else if (msg.type === 'PING_TEST') {
+    if (!isConnected || !ws) {
+      sendResponse({ success: false, error: '未连接到 MCP 服务器' });
+    } else {
+      const taskId = 'ping-' + Date.now();
+      const startTime = Date.now();
+      const timer = setTimeout(() => {
+        delete pending_tasks[taskId];
+        sendResponse({ success: false, error: '响应超时' });
+      }, 5000);
+      pending_tasks[taskId] = () => {
+        clearTimeout(timer);
+        delete pending_tasks[taskId];
+        sendResponse({ success: true, elapsed: Date.now() - startTime });
+      };
+      ws.send(JSON.stringify({ type: 'PING', taskId }));
+    }
   }
   return true;
 });

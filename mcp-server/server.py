@@ -158,7 +158,7 @@ async def ping_test() -> list[TextContent]:
 
         return [TextContent(
             type="text",
-            text=f"✅ 连接正常\n浏览器连接数: {len(ws_server.clients)}\n往返时间: {elapsed:.0f}ms"
+            text=f"✅ 连接正常\nMCP 服务器端口: {ws_server.port}\n浏览器连接数: {len(ws_server.clients)}\n往返时间: {elapsed:.0f}ms"
         )]
     except Exception as e:
         return [TextContent(type="text", text=f"❌ 测试失败: {str(e)}")]

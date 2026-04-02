@@ -1,5 +1,6 @@
 import asyncio
 import json
+import time
 import websockets
 import uuid
 from typing import Dict, Set
@@ -9,6 +10,7 @@ class WebSocketServer:
         self.host = host
         self.port = port
         self.instance_id = str(uuid.uuid4())
+        self.start_time = time.time()
         self.clients: Set[websockets.WebSocketServerProtocol] = set()
         self.pending_tasks: Dict[str, asyncio.Future] = {}
 
@@ -16,6 +18,12 @@ class WebSocketServer:
         """处理客户端连接"""
         self.clients.add(websocket)
         print(f"[WebSocket] 客户端已连接，当前连接数: {len(self.clients)}")
+        # 广播自身信息，插件据此选择最新的活跃服务器
+        await websocket.send(json.dumps({
+            'type': 'ANNOUNCE',
+            'port': self.port,
+            'startTime': self.start_time
+        }))
 
         try:
             async for message in websocket:
@@ -140,18 +148,15 @@ class WebSocketServer:
             import platform
 
             if platform.system() == "Windows":
-                # 查找占用端口的 PID
+                # 用 PowerShell 查找并终止占用端口的进程（比 netstat 更可靠）
                 result = subprocess.run(
-                    ["netstat", "-ano"],
-                    capture_output=True, text=True, timeout=2
+                    ["powershell", "-Command",
+                     f"Get-NetTCPConnection -LocalPort {port} -State Listen -ErrorAction SilentlyContinue"
+                     f" | Select-Object -ExpandProperty OwningProcess"
+                     f" | ForEach-Object {{ Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue }}"],
+                    capture_output=True, text=True, timeout=5
                 )
-                for line in result.stdout.splitlines():
-                    if f":{port}" in line and "LISTENING" in line:
-                        parts = line.split()
-                        pid = parts[-1]
-                        print(f"[WebSocket] 找到旧进程 PID: {pid}，尝试终止...")
-                        subprocess.run(["taskkill", "/F", "/PID", pid], timeout=2)
-                        return
+                print(f"[WebSocket] PowerShell 终止结果: {result.returncode}")
             else:
                 # Linux/Mac
                 result = subprocess.run(
@@ -167,7 +172,6 @@ class WebSocketServer:
 
     async def start(self):
         """启动 WebSocket 服务器"""
-        # 查找可用端口
         self.port = await self.find_available_port(self.port)
 
         async with websockets.serve(self.handle_client, self.host, self.port):

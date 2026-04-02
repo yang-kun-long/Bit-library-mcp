@@ -12,10 +12,10 @@ function updateStatus() {
   chrome.runtime.sendMessage({ type: 'CHECK_STATUS' }, (response) => {
     const statusEl = document.getElementById('status');
     if (response && response.connected) {
-      statusEl.textContent = '已连接到 MCP 服务器';
+      statusEl.textContent = `已连接到 MCP 服务器（端口 ${response.port}）`;
       statusEl.className = 'status connected';
     } else {
-      statusEl.textContent = '未连接到 MCP 服务器';
+      statusEl.textContent = `未连接到 MCP 服务器（端口 ${response?.port || '?'}）`;
       statusEl.className = 'status disconnected';
     }
   });
@@ -42,24 +42,29 @@ async function loadCustomUrl() {
   }
 }
 
+// 加载 MCP 端口
+async function loadMcpPort() {
+  const data = await chrome.storage.local.get(['mcpPort']);
+  document.getElementById('mcpPort').value = data.mcpPort || 8765;
+}
+
 updateStatus();
 setInterval(updateStatus, 1000);
 detectSchool();
 loadCustomUrl();
+loadMcpPort();
 
 // 测试按钮
 document.getElementById('testBtn').addEventListener('click', () => {
   const resultEl = document.getElementById('result');
   resultEl.textContent = '发送测试消息...';
 
-  const startTime = Date.now();
   chrome.runtime.sendMessage({ type: 'PING_TEST' }, (response) => {
-    const elapsed = Date.now() - startTime;
     if (response && response.success) {
-      resultEl.textContent = `✓ 测试成功！往返时间: ${elapsed}ms`;
+      resultEl.textContent = `✓ 测试成功！往返时间: ${response.elapsed}ms`;
       resultEl.style.color = '#155724';
     } else {
-      resultEl.textContent = '✗ 测试失败';
+      resultEl.textContent = `✗ 测试失败: ${response?.error || '未知错误'}`;
       resultEl.style.color = '#721c24';
     }
   });
@@ -115,6 +120,21 @@ document.getElementById('openDiscoveryBtn').addEventListener('click', async () =
     resultEl.textContent = `✓ 已打开发现系统，请手动确认登录状态`;
     resultEl.style.color = '#155724';
   }
+});
+
+// 保存 MCP 端口并重连
+document.getElementById('saveMcpPortBtn').addEventListener('click', async () => {
+  const port = parseInt(document.getElementById('mcpPort').value);
+  const resultEl = document.getElementById('result');
+  if (!port || port < 1024 || port > 65535) {
+    resultEl.textContent = '✗ 请输入有效端口（1024-65535）';
+    resultEl.style.color = '#721c24';
+    return;
+  }
+  await chrome.storage.local.set({ mcpPort: port });
+  chrome.runtime.sendMessage({ type: 'RECONNECT' });
+  resultEl.textContent = `✓ 已切换到端口 ${port}，正在重连...`;
+  resultEl.style.color = '#155724';
 });
 
 // 保存自定义 URL
