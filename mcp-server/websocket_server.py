@@ -20,14 +20,14 @@ class WebSocketServer:
         try:
             async for message in websocket:
                 data = json.loads(message)
-                await self.handle_message(data)
+                await self.handle_message(websocket, data)
         except websockets.exceptions.ConnectionClosed:
             pass
         finally:
             self.clients.remove(websocket)
             print(f"[WebSocket] 客户端已断开，当前连接数: {len(self.clients)}")
 
-    async def handle_message(self, data):
+    async def handle_message(self, websocket, data):
         """处理来自浏览器插件的消息"""
         msg_type = data.get('type')
         task_id = data.get('taskId')
@@ -41,12 +41,8 @@ class WebSocketServer:
                 return_exceptions=True
             )
         elif msg_type == 'INSTANCE_CHECK':
-            # 响应实例检查
-            await asyncio.gather(
-                *[client.send(json.dumps({'type': 'INSTANCE_RESPONSE', 'instanceId': self.instance_id}))
-                  for client in self.clients],
-                return_exceptions=True
-            )
+            # 直接回复发送者
+            await websocket.send(json.dumps({'type': 'INSTANCE_RESPONSE', 'instanceId': self.instance_id}))
         elif msg_type == 'RESULT' and task_id in self.pending_tasks:
             # 完成等待中的任务
             future = self.pending_tasks.pop(task_id)
