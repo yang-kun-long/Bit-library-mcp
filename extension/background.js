@@ -2,6 +2,7 @@
 let ws = null;
 let isConnected = false;
 let pending_tasks = {};
+let currentPort = 8765;
 
 // 导入依赖
 importScripts(
@@ -11,9 +12,51 @@ importScripts(
   'providers/manual-provider.js'
 );
 
+// 尝试连接到指定端口
+async function tryConnect(port) {
+  return new Promise((resolve) => {
+    const testWs = new WebSocket(`ws://localhost:${port}`);
+    const timeout = setTimeout(() => {
+      testWs.close();
+      resolve(false);
+    }, 2000);
+
+    testWs.onopen = () => {
+      clearTimeout(timeout);
+      testWs.close();
+      resolve(true);
+    };
+
+    testWs.onerror = () => {
+      clearTimeout(timeout);
+      resolve(false);
+    };
+  });
+}
+
+// 查找可用的 MCP 服务器端口
+async function findMCPPort() {
+  for (let port = 8765; port < 8775; port++) {
+    if (await tryConnect(port)) {
+      console.log(`[MCP] 找到服务器在端口 ${port}`);
+      return port;
+    }
+  }
+  return null;
+}
+
 // 连接到 MCP 服务器
-function connectToMCP() {
-  ws = new WebSocket('ws://localhost:8765');
+async function connectToMCP() {
+  // 查找可用端口
+  const port = await findMCPPort();
+  if (!port) {
+    console.log('[MCP] 未找到可用服务器，5秒后重试');
+    setTimeout(connectToMCP, 5000);
+    return;
+  }
+
+  currentPort = port;
+  ws = new WebSocket(`ws://localhost:${currentPort}`);
 
   ws.onopen = () => {
     console.log('[MCP] 已连接到服务器');

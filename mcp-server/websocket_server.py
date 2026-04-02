@@ -1,12 +1,14 @@
 import asyncio
 import json
 import websockets
+import uuid
 from typing import Dict, Set
 
 class WebSocketServer:
     def __init__(self, host='localhost', port=8765):
         self.host = host
         self.port = port
+        self.instance_id = str(uuid.uuid4())
         self.clients: Set[websockets.WebSocketServerProtocol] = set()
         self.pending_tasks: Dict[str, asyncio.Future] = {}
 
@@ -35,6 +37,13 @@ class WebSocketServer:
             # 响应 PING
             await asyncio.gather(
                 *[client.send(json.dumps({'type': 'PONG', 'taskId': task_id}))
+                  for client in self.clients],
+                return_exceptions=True
+            )
+        elif msg_type == 'INSTANCE_CHECK':
+            # 响应实例检查
+            await asyncio.gather(
+                *[client.send(json.dumps({'type': 'INSTANCE_RESPONSE', 'instanceId': self.instance_id}))
                   for client in self.clients],
                 return_exceptions=True
             )
@@ -73,8 +82,41 @@ class WebSocketServer:
             self.pending_tasks.pop(task_id, None)
             raise Exception("任务执行超时")
 
+    async def check_existing_instance(self, port: int) -> bool:
+        """检查指定端口是否有本实例运行"""
+        try:
+            async with websockets.connect(f"ws://{self.host}:{port}", timeout=2) as ws:
+                await ws.send(json.dumps({'type': 'INSTANCE_CHECK'}))
+                response = await asyncio.wait_for(ws.recv(), timeout=2)
+                data = json.loads(response)
+                if data.get('type') == 'INSTANCE_RESPONSE':
+                    return data.get('instanceId') == self.instance_id
+        except:
+            pass
+        return False
+
+    async def find_available_port(self, start_port: int, max_attempts: int = 10) -> int:
+        """查找可用端口"""
+        for port in range(start_port, start_port + max_attempts):
+            try:
+                # 尝试绑定端口
+                server = await websockets.serve(lambda ws: None, self.host, port)
+                server.close()
+                await server.wait_closed()
+                return port
+            except OSError:
+                # 端口被占用，检查是否是本实例
+                if await self.check_existing_instance(port):
+                    print(f"[WebSocket] 检测到本实例已在端口 {port} 运行，退出")
+                    raise SystemExit(0)
+                continue
+        raise Exception(f"无法找到可用端口 ({start_port}-{start_port + max_attempts - 1})")
+
     async def start(self):
         """启动 WebSocket 服务器"""
+        # 查找可用端口
+        self.port = await self.find_available_port(self.port)
+
         async with websockets.serve(self.handle_client, self.host, self.port):
-            print(f"[WebSocket] 服务器已启动: ws://{self.host}:{self.port}")
+            print(f"[WebSocket] 服务器已启动: ws://{self.host}:{self.port} (实例ID: {self.instance_id[:8]})")
             await asyncio.Future()  # 永久运行
