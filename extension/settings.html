@@ -3,29 +3,48 @@
 <head>
   <meta charset="UTF-8">
   <style>
-    body { width: 400px; padding: 20px; font-family: sans-serif; }
-    h3 { margin-top: 0; }
-    .form-group { margin-bottom: 15px; }
-    label { display: block; margin-bottom: 5px; font-weight: bold; }
-    input { width: 100%; padding: 8px; box-sizing: border-box; }
-    button { width: 100%; padding: 10px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; }
+    body { width: 420px; padding: 20px; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; line-height: 1.5; color: #333; }
+    h3 { margin-top: 0; color: #007bff; }
+    .form-group { margin-bottom: 20px; }
+    label { display: block; margin-bottom: 8px; font-weight: 600; }
+    input, select { width: 100%; padding: 10px; border: 1px solid #ced4da; border-radius: 4px; box-sizing: border-box; font-size: 14px; }
+    button { width: 100%; padding: 12px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 16px; font-weight: 500; transition: background 0.2s; }
     button:hover { background: #0056b3; }
-    .note { font-size: 12px; color: #666; margin-top: 5px; }
-    .success { color: #155724; background: #d4edda; padding: 10px; border-radius: 4px; margin-top: 10px; }
+    .note { font-size: 12.5px; color: #6c757d; margin-top: 8px; }
+    .risk-info { font-size: 12px; background: #fff3cd; border: 1px solid #ffeeba; color: #856404; padding: 12px; border-radius: 4px; margin-bottom: 20px; }
+    .success { color: #155724; background: #d4edda; padding: 10px; border-radius: 4px; margin-top: 15px; text-align: center; }
+    .hidden { display: none; }
+    hr { border: 0; border-top: 1px solid #eee; margin: 20px 0; }
   </style>
 </head>
 <body>
-  <h3>BIT 图书馆登录设置</h3>
+  <h3>图书馆访问设置</h3>
 
-  <div class="form-group">
-    <label>学号</label>
-    <input type="text" id="username" placeholder="输入学号">
+  <div class="risk-info">
+    <strong>安全提示：</strong><br>
+    • <b>自动登录</b>：需要将您的学号和密码<b>加密存储在本地浏览器</b>中，虽然更方便，但请确保电脑安全。<br>
+    • <b>手动登录</b>：不需要存储密码。如果 AI 发现未登录，会提示您在浏览器中手动操作。
   </div>
 
   <div class="form-group">
-    <label>密码</label>
-    <input type="password" id="password" placeholder="输入统一身份认证密码">
-    <div class="note">密码加密存储在本地，不会上传</div>
+    <label>学校/登录方式</label>
+    <select id="university">
+      <option value="BIT">北京理工大学 (BIT) - 自动登录</option>
+      <option value="MANUAL">手动登录/其他学校 - 安全推荐</option>
+    </select>
+  </div>
+
+  <div id="auto-login-fields">
+    <div class="form-group">
+      <label>学号</label>
+      <input type="text" id="username" placeholder="输入学号">
+    </div>
+
+    <div class="form-group">
+      <label>密码</label>
+      <input type="password" id="password" placeholder="输入统一身份认证密码">
+      <div class="note">密码使用 XOR 加密存储在本地。</div>
+    </div>
   </div>
 
   <button id="saveBtn">保存设置</button>

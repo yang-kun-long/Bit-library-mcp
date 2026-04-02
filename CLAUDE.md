@@ -35,6 +35,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 1. **规则学习**（慢，首次）：LLM 分析页面 → 生成 JSON 规则 → 用户确认
 2. **规则执行**（快，重复）：读取规则 → 插件执行 → 返回结果
 
+## 核心工作流规范
+
+- **学术资产固化 (Mandatory)**: 
+  - 在获取到论文详情后，应主动引导用户使用 `persist_paper` 工具。
+  - 所有本地文献记录必须通过 `persist_paper` 工具生成，以确保 `Research/papers/` 详情与 `Research/README.md` 索引实时同步。
+  - 资产命名规范：`[dxid]_[标题关键部分].md`（由工具自动处理）。
+
 ## 技术栈
 
 - **浏览器插件**: Manifest V3, WebSocket 客户端
@@ -44,12 +51,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 开发计划
 
-当前状态：**设计阶段**（仅有设计文档）
+当前状态：**MVP 阶段** (2026-04-01 已实现智真系统元数据增强抓取)
 
 MVP 目标：
-- 实现北理工 IEEE Xplore 访问
-- 基础 MCP 工具：`search_papers`, `download_paper`
-- 规则学习工具：`learn_rule`
+- [x] 实现智真系统 (Zhizhen/超星发现) 元数据深度抓取 (单位, 基金, 核心收录等)
+- [x] 修复 WebSocket 任务解包协议 (支持 `TASK` 类型的封装指令)
+- [ ] 实现北理工 IEEE Xplore 访问
 
 ## 项目结构（规划）
 
@@ -69,6 +76,8 @@ library-access-mcp/
 
 ## 关键设计决策
 
+- **数据提取策略**: 采用“模糊匹配 + 递归搜索”算法，取代静态 DOM 选择器。通过搜索关键词定位元数据，有效应对动态结构和 iframe 嵌套页面。
+- **调试机制**: 抓取失败时保留 active 标签页不关闭，便于用户手动干预或查看 console 日志 (带有 `[Injected]` 和 `[MCP]` 前缀)。
 - **为什么不用 Playwright MCP**：无法复用已登录 session
 - **为什么不用 mcp-chrome**：每次让 LLM 理解页面太慢（13-20秒）
 - **为什么用规则引擎**：脚本化执行快（1秒），规则可复用
