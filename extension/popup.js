@@ -84,32 +84,37 @@ document.getElementById('openDiscoveryBtn').addEventListener('click', async () =
   // 打开发现系统
   const tab = await chrome.tabs.create({ url: discoveryUrl });
 
-  // 等待页面加载后检测登录状态
-  resultEl.textContent = '正在检测登录状态...';
-  resultEl.style.color = '#666';
+  // 只对智真系统检测登录状态
+  if (discoveryUrl.includes('ss.zhizhen.com')) {
+    resultEl.textContent = '正在检测登录状态...';
+    resultEl.style.color = '#666';
 
-  setTimeout(async () => {
-    try {
-      const [result] = await chrome.scripting.executeScript({
-        target: { tabId: tab.id },
-        func: () => {
-          const welcomePattern = /欢迎来自.*?的朋友/;
-          return welcomePattern.test(document.body.textContent);
+    setTimeout(async () => {
+      try {
+        const [result] = await chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          func: () => {
+            const welcomePattern = /欢迎来自.*?的朋友/;
+            return welcomePattern.test(document.body.textContent);
+          }
+        });
+
+        if (result.result) {
+          resultEl.textContent = '✓ 登录成功！可以开始使用 AI 搜索';
+          resultEl.style.color = '#155724';
+        } else {
+          resultEl.textContent = '✗ 未检测到登录状态，请先登录图书馆';
+          resultEl.style.color = '#721c24';
         }
-      });
-
-      if (result.result) {
-        resultEl.textContent = '✓ 登录成功！可以开始使用 AI 搜索';
-        resultEl.style.color = '#155724';
-      } else {
-        resultEl.textContent = '✗ 未检测到登录状态，请先登录图书馆';
-        resultEl.style.color = '#721c24';
+      } catch (e) {
+        resultEl.textContent = '⚠ 无法检测登录状态，请手动确认';
+        resultEl.style.color = '#856404';
       }
-    } catch (e) {
-      resultEl.textContent = '⚠ 无法检测登录状态，请手动确认';
-      resultEl.style.color = '#856404';
-    }
-  }, 3000); // 等待 3 秒让页面加载
+    }, 3000);
+  } else {
+    resultEl.textContent = `✓ 已打开发现系统，请手动确认登录状态`;
+    resultEl.style.color = '#155724';
+  }
 });
 
 // 保存自定义 URL
