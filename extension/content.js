@@ -115,17 +115,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         error = '未找到登录状态标识';
       }
     } else if (location.hostname === 'ss.zhizhen.com') {
-      // 发现系统登录检测
+      // 发现系统登录检测 - 检测 "欢迎来自...的朋友" 字样（通用）
+      const welcomePattern = /欢迎来自.*?的朋友/;
       const welcomeLinks = document.querySelectorAll('a[href="#"]');
       for (const link of welcomeLinks) {
-        if (link.textContent.includes('欢迎来自北京理工大学的朋友')) {
+        if (welcomePattern.test(link.textContent)) {
           isLoggedIn = true;
           break;
         }
       }
       if (!isLoggedIn) {
         // 备选方案：检查整个页面的文字
-        if (document.body.textContent.includes('欢迎来自北京理工大学的朋友')) {
+        if (welcomePattern.test(document.body.textContent)) {
           isLoggedIn = true;
         } else {
           error = '超星发现页未登录';
