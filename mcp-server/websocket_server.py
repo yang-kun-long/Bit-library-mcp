@@ -85,23 +85,37 @@ class WebSocketServer:
     async def check_existing_instance(self, port: int) -> bool:
         """检查指定端口是否有 MCP 服务器运行（任何实例）"""
         try:
-            async with websockets.connect(f"ws://{self.host}:{port}", timeout=2) as ws:
+            async with websockets.connect(f"ws://{self.host}:{port}", timeout=3) as ws:
+                # 发送检查请求
                 await ws.send(json.dumps({'type': 'INSTANCE_CHECK'}))
-                response = await asyncio.wait_for(ws.recv(), timeout=2)
-                data = json.loads(response)
-                # 只要有响应 INSTANCE_RESPONSE，就认为有实例在运行
-                return data.get('type') == 'INSTANCE_RESPONSE'
-        except:
-            pass
+                # 等待响应
+                try:
+                    response = await asyncio.wait_for(ws.recv(), timeout=3)
+                    data = json.loads(response)
+                    # 只要有响应 INSTANCE_RESPONSE，就认为有实例在运行
+                    if data.get('type') == 'INSTANCE_RESPONSE':
+                        print(f"[WebSocket] 端口 {port} 检测到实例: {data.get('instanceId', 'unknown')[:8]}")
+                        return True
+                except asyncio.TimeoutError:
+                    print(f"[WebSocket] 端口 {port} 响应超时")
+                    return False
+        except Exception as e:
+            # 连接失败说明端口没有 WebSocket 服务或不可达
+            return False
         return False
 
     async def find_available_port(self, start_port: int, max_attempts: int = 10) -> int:
         """查找可用端口，如果发现任何实例已运行则退出"""
+        print(f"[WebSocket] 开始扫描端口 {start_port}-{start_port + max_attempts - 1}...")
+
         # 先扫描所有可能的端口，检查是否已有实例运行
         for port in range(start_port, start_port + max_attempts):
+            print(f"[WebSocket] 检查端口 {port}...")
             if await self.check_existing_instance(port):
                 print(f"[WebSocket] 检测到 MCP 服务器已在端口 {port} 运行，退出以避免重复实例")
                 raise SystemExit(0)
+
+        print(f"[WebSocket] 未检测到运行中的实例，查找可用端口...")
 
         # 没有实例运行，查找第一个可用端口
         for port in range(start_port, start_port + max_attempts):
@@ -109,8 +123,10 @@ class WebSocketServer:
                 server = await websockets.serve(lambda ws: None, self.host, port)
                 server.close()
                 await server.wait_closed()
+                print(f"[WebSocket] 端口 {port} 可用")
                 return port
             except OSError:
+                print(f"[WebSocket] 端口 {port} 被占用（非 MCP 服务）")
                 continue
         raise Exception(f"无法找到可用端口 ({start_port}-{start_port + max_attempts - 1})")
 
