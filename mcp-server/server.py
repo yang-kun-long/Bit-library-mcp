@@ -34,7 +34,8 @@ async def list_tools() -> list[Tool]:
                 "type": "object",
                 "properties": {
                     "university": {"type": "string", "description": "学校代码，例如 'BIT' (北京理工大学)", "default": "BIT"},
-                    "service": {"type": "string", "description": "特定的服务 URL", "default": "https://lib.bit.edu.cn/sso/login/3rd?wfwfid=2398&refer=https://lib.bit.edu.cn"}
+                    "service": {"type": "string", "description": "特定的服务 URL", "default": "https://lib.bit.edu.cn/sso/login/3rd?wfwfid=2398&refer=https://lib.bit.edu.cn"},
+                    "discovery_url": {"type": "string", "description": "发现系统 URL（如智真/超星），登录后自动跳转", "default": "https://ss.zhizhen.com/"}
                 },
                 "required": []
             }
@@ -170,6 +171,7 @@ async def login_library(args: dict) -> list[TextContent]:
 
         university = args.get("university", "BIT")
         service = args.get("service", "https://lib.bit.edu.cn/sso/login/3rd?wfwfid=2398&refer=https://lib.bit.edu.cn")
+        discovery_url = args.get("discovery_url", "https://ss.zhizhen.com/")
         task_id = str(uuid.uuid4())
 
         payload = {
@@ -181,14 +183,14 @@ async def login_library(args: dict) -> list[TextContent]:
         result = await ws_server.send_task(task_id, payload)
 
         if result.get("success"):
-            # 登录成功后自动跳转到智真系统
+            # 登录成功后自动跳转到发现系统
             await asyncio.sleep(2)
             zhizhen_task_id = str(uuid.uuid4())
-            await ws_server.send_task(zhizhen_task_id, {'type': 'OPEN_URL', 'url': 'https://ss.zhizhen.com/'})
+            await ws_server.send_task(zhizhen_task_id, {'type': 'OPEN_URL', 'url': discovery_url})
 
             return [TextContent(
                 type="text",
-                text=f"✅ {university} 登录成功，已跳转到智真系统"
+                text=f"✅ {university} 登录成功，已跳转到发现系统"
             )]
         else:
             return [TextContent(
