@@ -1,3 +1,12 @@
+// 学校域名映射
+const SCHOOL_NAMES = {
+  'lib.bit.edu.cn': '北京理工大学',
+  'lib.tsinghua.edu.cn': '清华大学',
+  'lib.pku.edu.cn': '北京大学',
+  'lib.ruc.edu.cn': '中国人民大学',
+  'lib.bnu.edu.cn': '北京师范大学'
+};
+
 // 检查连接状态
 function updateStatus() {
   chrome.runtime.sendMessage({ type: 'CHECK_STATUS' }, (response) => {
@@ -12,8 +21,31 @@ function updateStatus() {
   });
 }
 
+// 检测当前学校
+async function detectSchool() {
+  const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (tabs[0]) {
+    const url = new URL(tabs[0].url);
+    const hostname = url.hostname;
+    const schoolName = SCHOOL_NAMES[hostname] || '未知';
+    document.getElementById('currentSchool').textContent = schoolName;
+    return hostname;
+  }
+  return null;
+}
+
+// 加载自定义 URL
+async function loadCustomUrl() {
+  const data = await chrome.storage.local.get(['customDiscoveryUrl']);
+  if (data.customDiscoveryUrl) {
+    document.getElementById('customUrl').value = data.customDiscoveryUrl;
+  }
+}
+
 updateStatus();
-setInterval(updateStatus, 1000); // 每秒刷新
+setInterval(updateStatus, 1000);
+detectSchool();
+loadCustomUrl();
 
 // 测试按钮
 document.getElementById('testBtn').addEventListener('click', () => {
@@ -33,18 +65,39 @@ document.getElementById('testBtn').addEventListener('click', () => {
   });
 });
 
-// 打开图书馆按钮
-document.getElementById('openLibBtn').addEventListener('click', async () => {
-  const config = await chrome.storage.local.get(['university']);
-  const uni = config.university || 'BIT';
-  const libUrls = {
-    'BIT': 'https://lib.bit.edu.cn/',
-    'MANUAL': 'https://ss.zhizhen.com/'
-  };
-  chrome.tabs.create({ url: libUrls[uni] || libUrls['BIT'] });
+// 打开发现系统按钮
+document.getElementById('openDiscoveryBtn').addEventListener('click', async () => {
+  const resultEl = document.getElementById('result');
+  const hostname = await detectSchool();
+
+  // 读取配置文件
+  const response = await fetch(chrome.runtime.getURL('discovery-mapping.json'));
+  const mapping = await response.json();
+
+  // 读取自定义 URL
+  const storage = await chrome.storage.local.get(['customDiscoveryUrl']);
+  const customUrl = storage.customDiscoveryUrl;
+
+  // 优先级：自定义 URL > 域名映射 > 默认
+  let discoveryUrl = customUrl || mapping[hostname] || mapping['custom'];
+
+  chrome.tabs.create({ url: discoveryUrl });
+  resultEl.textContent = `✓ 已打开发现系统: ${discoveryUrl}`;
+  resultEl.style.color = '#155724';
 });
 
-// 设置按钮
-document.getElementById('settingsBtn').addEventListener('click', () => {
-  chrome.tabs.create({ url: chrome.runtime.getURL('settings.html') });
+// 保存自定义 URL
+document.getElementById('saveUrlBtn').addEventListener('click', async () => {
+  const url = document.getElementById('customUrl').value.trim();
+  const resultEl = document.getElementById('result');
+
+  if (!url) {
+    resultEl.textContent = '✗ 请输入有效的 URL';
+    resultEl.style.color = '#721c24';
+    return;
+  }
+
+  await chrome.storage.local.set({ customDiscoveryUrl: url });
+  resultEl.textContent = '✓ 自定义 URL 已保存';
+  resultEl.style.color = '#155724';
 });
