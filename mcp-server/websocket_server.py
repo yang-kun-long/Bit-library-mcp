@@ -101,20 +101,27 @@ class WebSocketServer:
         return False
 
     async def find_available_port(self, start_port: int, max_attempts: int = 10) -> int:
-        """查找可用端口，如果发现任何实例已运行则退出"""
+        """查找可用端口，如果发现旧实例则尝试杀掉"""
         print(f"[WebSocket] 开始扫描端口 {start_port}-{start_port + max_attempts - 1}...")
 
-        # 先扫描所有可能的端口，检查是否已有实例运行
-        for port in range(start_port, start_port + max_attempts):
-            print(f"[WebSocket] 检查端口 {port}...")
-            if await self.check_existing_instance(port):
-                print(f"[WebSocket] 检测到 MCP 服务器已在端口 {port} 运行，退出以避免重复实例")
-                raise SystemExit(0)
+        # 检查首选端口是否有旧实例
+        if await self.check_existing_instance(start_port):
+            print(f"[WebSocket] 检测到旧实例在端口 {start_port}，尝试杀掉...")
+            await self.kill_old_instance(start_port)
+            await asyncio.sleep(0.5)  # 等待端口释放
 
-        print(f"[WebSocket] 未检测到运行中的实例，查找可用端口...")
+        # 尝试绑定首选端口
+        try:
+            server = await websockets.serve(lambda ws: None, self.host, start_port)
+            server.close()
+            await server.wait_closed()
+            print(f"[WebSocket] 端口 {start_port} 可用")
+            return start_port
+        except OSError:
+            print(f"[WebSocket] 端口 {start_port} 仍被占用，查找其他端口...")
 
-        # 没有实例运行，查找第一个可用端口
-        for port in range(start_port, start_port + max_attempts):
+        # 如果首选端口不可用，尝试其他端口
+        for port in range(start_port + 1, start_port + max_attempts):
             try:
                 server = await websockets.serve(lambda ws: None, self.host, port)
                 server.close()
@@ -122,9 +129,41 @@ class WebSocketServer:
                 print(f"[WebSocket] 端口 {port} 可用")
                 return port
             except OSError:
-                print(f"[WebSocket] 端口 {port} 被占用（非 MCP 服务）")
                 continue
+
         raise Exception(f"无法找到可用端口 ({start_port}-{start_port + max_attempts - 1})")
+
+    async def kill_old_instance(self, port: int):
+        """尝试杀掉占用指定端口的旧 Python 进程"""
+        try:
+            import subprocess
+            import platform
+
+            if platform.system() == "Windows":
+                # 查找占用端口的 PID
+                result = subprocess.run(
+                    ["netstat", "-ano"],
+                    capture_output=True, text=True, timeout=2
+                )
+                for line in result.stdout.splitlines():
+                    if f":{port}" in line and "LISTENING" in line:
+                        parts = line.split()
+                        pid = parts[-1]
+                        print(f"[WebSocket] 找到旧进程 PID: {pid}，尝试终止...")
+                        subprocess.run(["taskkill", "/F", "/PID", pid], timeout=2)
+                        return
+            else:
+                # Linux/Mac
+                result = subprocess.run(
+                    ["lsof", "-ti", f":{port}"],
+                    capture_output=True, text=True, timeout=2
+                )
+                pid = result.stdout.strip()
+                if pid:
+                    print(f"[WebSocket] 找到旧进程 PID: {pid}，尝试终止...")
+                    subprocess.run(["kill", "-9", pid], timeout=2)
+        except Exception as e:
+            print(f"[WebSocket] 无法杀掉旧进程: {e}")
 
     async def start(self):
         """启动 WebSocket 服务器"""

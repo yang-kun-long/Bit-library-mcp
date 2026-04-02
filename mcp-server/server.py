@@ -181,9 +181,14 @@ async def login_library(args: dict) -> list[TextContent]:
         result = await ws_server.send_task(task_id, payload)
 
         if result.get("success"):
+            # 登录成功后自动跳转到智真系统
+            await asyncio.sleep(2)
+            zhizhen_task_id = str(uuid.uuid4())
+            await ws_server.send_task(zhizhen_task_id, {'type': 'OPEN_URL', 'url': 'https://ss.zhizhen.com/'})
+
             return [TextContent(
                 type="text",
-                text=f"✅ {university} 登录成功"
+                text=f"✅ {university} 登录成功，已跳转到智真系统"
             )]
         else:
             return [TextContent(
