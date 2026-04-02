@@ -83,32 +83,34 @@ class WebSocketServer:
             raise Exception("任务执行超时")
 
     async def check_existing_instance(self, port: int) -> bool:
-        """检查指定端口是否有本实例运行"""
+        """检查指定端口是否有 MCP 服务器运行（任何实例）"""
         try:
             async with websockets.connect(f"ws://{self.host}:{port}", timeout=2) as ws:
                 await ws.send(json.dumps({'type': 'INSTANCE_CHECK'}))
                 response = await asyncio.wait_for(ws.recv(), timeout=2)
                 data = json.loads(response)
-                if data.get('type') == 'INSTANCE_RESPONSE':
-                    return data.get('instanceId') == self.instance_id
+                # 只要有响应 INSTANCE_RESPONSE，就认为有实例在运行
+                return data.get('type') == 'INSTANCE_RESPONSE'
         except:
             pass
         return False
 
     async def find_available_port(self, start_port: int, max_attempts: int = 10) -> int:
-        """查找可用端口"""
+        """查找可用端口，如果发现任何实例已运行则退出"""
+        # 先扫描所有可能的端口，检查是否已有实例运行
+        for port in range(start_port, start_port + max_attempts):
+            if await self.check_existing_instance(port):
+                print(f"[WebSocket] 检测到 MCP 服务器已在端口 {port} 运行，退出以避免重复实例")
+                raise SystemExit(0)
+
+        # 没有实例运行，查找第一个可用端口
         for port in range(start_port, start_port + max_attempts):
             try:
-                # 尝试绑定端口
                 server = await websockets.serve(lambda ws: None, self.host, port)
                 server.close()
                 await server.wait_closed()
                 return port
             except OSError:
-                # 端口被占用，检查是否是本实例
-                if await self.check_existing_instance(port):
-                    print(f"[WebSocket] 检测到本实例已在端口 {port} 运行，退出")
-                    raise SystemExit(0)
                 continue
         raise Exception(f"无法找到可用端口 ({start_port}-{start_port + max_attempts - 1})")
 
