@@ -28,6 +28,18 @@ async function connectToMCP() {
     try {
       const message = JSON.parse(event.data);
       console.log('[MCP] 收到原始消息:', message);
+
+      // 收到 ANNOUNCE 后发送客户端信息
+      if (message.type === 'ANNOUNCE') {
+        const manifest = chrome.runtime.getManifest();
+        ws.send(JSON.stringify({
+          type: 'CLIENT_INFO',
+          version: manifest.version,
+          browser: 'Chrome',
+          timestamp: Date.now()
+        }));
+      }
+
       handleMessage(message);
     } catch (e) {
       console.error('[MCP] 解析消息失败:', e, event.data);
@@ -64,29 +76,6 @@ async function getActiveProvider() {
   return Providers[uni] || Providers['BIT'];
 }
 
-// 检查发现系统是否已登录
-async function checkDiscoveryAuth() {
-  const provider = await getActiveProvider();
-  return new Promise((resolve) => {
-    chrome.tabs.create({ url: provider.getDiscoveryUrl(), active: false }, (tab) => {
-      const check = setInterval(async () => {
-        const response = await provider.checkAuth(tab.id);
-        if (chrome.runtime.lastError) return;
-        if (response && response.success) {
-          clearInterval(check);
-          chrome.tabs.remove(tab.id);
-          resolve(response);
-        }
-      }, 1000);
-      setTimeout(() => {
-        clearInterval(check);
-        chrome.tabs.remove(tab.id).catch(() => {});
-        resolve({ success: false });
-      }, 10000);
-    });
-  });
-}
-
 // 处理来自 MCP 服务器的消息
 async function handleMessage(msg) {
   console.log('[MCP] handleMessage 收到:', msg);
@@ -117,13 +106,7 @@ async function handleMessage(msg) {
     console.log(`[MCP] 执行指令: ${type}, 任务ID: ${taskId}`);
     const provider = await getActiveProvider();
 
-    if (type === 'CHECK_AUTH') {
-      const result = await checkDiscoveryAuth();
-      ws.send(JSON.stringify({ type: 'RESULT', taskId, data: result }));
-    } else if (type === 'SYNC_SESSION') {
-      await provider.syncSession();
-      ws.send(JSON.stringify({ type: 'RESULT', taskId, data: { success: true } }));
-    } else if (type === 'LOGIN' || type === 'LOGIN_LIBRARY') {
+    if (type === 'LOGIN' || type === 'LOGIN_LIBRARY') {
       const result = await provider.login(taskId, payload);
       ws.send(JSON.stringify({ type: 'RESULT', taskId, data: result }));
     } else if (type === 'SEARCH_PAPERS') {

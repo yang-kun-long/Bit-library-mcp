@@ -97,6 +97,31 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           data: { success: false, error: error.message }
         });
       });
+  } else if (message.type === 'CHECK_LIBRARY_AUTH') {
+    // 检查图书馆登录状态
+    let isLoggedIn = false;
+    let error = null;
+
+    if (location.hostname === 'lib.bit.edu.cn') {
+      const loginedEl = document.getElementById('logined');
+      const loginBtn = document.getElementById('id-login');
+
+      if (loginedEl && getComputedStyle(loginedEl).display !== 'none') {
+        isLoggedIn = true;
+      } else if (loginBtn) {
+        isLoggedIn = false;
+        error = '未登录';
+      } else {
+        error = '未找到登录状态标识';
+      }
+    } else {
+      error = '不是图书馆页面';
+    }
+
+    sendResponse({
+      success: isLoggedIn,
+      error: isLoggedIn ? null : error
+    });
   } else if (message.type === 'CHECK_LOGIN_STATUS') {
     let isLoggedIn = false;
     let error = null;
@@ -142,15 +167,20 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     // 执行统一检索（兜底逻辑：触发 session 同步）
     try {
       const input = document.querySelector('.ipt-box .ipt');
-      const btn = document.querySelector('.btn-search[onclick*="searchTemp47.link"]');
+      const btn = document.querySelector('button.btn-search');
 
-      if (input && btn) {
-        input.value = 'AI Search';
-        btn.click();
-        sendResponse({ success: true });
-      } else {
-        sendResponse({ success: false, error: '未找到统一检索框或搜索按钮' });
+      if (!input || !btn) {
+        sendResponse({ success: false, error: '未找到搜索框或按钮' });
+        return true;
       }
+
+      // 填充输入框
+      input.value = 'AI Search';
+
+      // 点击按钮，让页面自然跳转
+      btn.click();
+
+      sendResponse({ success: true });
     } catch (e) {
       sendResponse({ success: false, error: e.message });
     }

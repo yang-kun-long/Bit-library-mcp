@@ -8,17 +8,41 @@ const SCHOOL_NAMES = {
 };
 
 // 检查连接状态
+let connectionStartTime = null;
+
 function updateStatus() {
   chrome.runtime.sendMessage({ type: 'CHECK_STATUS' }, (response) => {
     const statusEl = document.getElementById('status');
+    const serverPortEl = document.getElementById('serverPort');
+    const connectionTimeEl = document.getElementById('connectionTime');
+
     if (response && response.connected) {
-      statusEl.textContent = `已连接到 MCP 服务器（端口 ${response.port}）`;
+      statusEl.textContent = `已连接到 MCP 服务器`;
       statusEl.className = 'status connected';
+      serverPortEl.textContent = response.port;
+
+      // 计算连接时长
+      if (!connectionStartTime) {
+        connectionStartTime = Date.now();
+      }
+      const elapsed = Math.floor((Date.now() - connectionStartTime) / 1000);
+      const minutes = Math.floor(elapsed / 60);
+      const seconds = elapsed % 60;
+      connectionTimeEl.textContent = minutes > 0 ? `${minutes}分${seconds}秒` : `${seconds}秒`;
     } else {
-      statusEl.textContent = `未连接到 MCP 服务器（端口 ${response?.port || '?'}）`;
+      statusEl.textContent = `未连接到 MCP 服务器`;
       statusEl.className = 'status disconnected';
+      serverPortEl.textContent = response?.port || '-';
+      connectionTimeEl.textContent = '-';
+      connectionStartTime = null;
     }
   });
+}
+
+// 显示插件版本
+function showPluginVersion() {
+  const manifest = chrome.runtime.getManifest();
+  document.getElementById('pluginVersion').textContent = manifest.version;
 }
 
 // 检测当前学校
@@ -48,6 +72,7 @@ async function loadMcpPort() {
   document.getElementById('mcpPort').value = data.mcpPort || 8765;
 }
 
+showPluginVersion();
 updateStatus();
 setInterval(updateStatus, 1000);
 detectSchool();

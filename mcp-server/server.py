@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import asyncio
 import json
+import time
 import uuid
 from mcp.server import Server
 from mcp.types import Tool, TextContent
@@ -138,30 +139,54 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
 async def ping_test() -> list[TextContent]:
     """测试连接"""
     try:
-        if not ws_server.clients:
-            return [TextContent(type="text", text="❌ 没有浏览器连接")]
+        # 基本状态信息
+        status_text = f"WebSocket 服务器端口: {ws_server.port}\n"
 
+        if not ws_server.clients:
+            status_text += "❌ 没有浏览器连接\n\n"
+            status_text += "排错提示:\n"
+            status_text += f"1. 请在 Chrome 中启动插件并连接到 ws://localhost:{ws_server.port}\n"
+            status_text += "2. 检查插件是否已启用\n"
+            status_text += "3. 检查端口是否被占用（可尝试重启浏览器）\n"
+            status_text += "4. 查看浏览器控制台是否有连接错误"
+            return [TextContent(type="text", text=status_text)]
+
+        # 有连接时，发送 PING 测试
         task_id = str(uuid.uuid4())
         start_time = asyncio.get_event_loop().time()
 
         # 发送 PING
         message = json.dumps({'type': 'PING', 'taskId': task_id})
-        await asyncio.gather(
+        results = await asyncio.gather(
             *[client.send(message) for client in ws_server.clients],
             return_exceptions=True
         )
 
-        # 等待 PONG（简单等待，实际应该监听响应）
+        # 检查是否有发送失败
+        failed_count = sum(1 for r in results if isinstance(r, Exception))
+
+        # 等待 PONG
         await asyncio.sleep(0.1)
 
         elapsed = (asyncio.get_event_loop().time() - start_time) * 1000
 
-        return [TextContent(
-            type="text",
-            text=f"✅ 连接正常\nMCP 服务器端口: {ws_server.port}\n浏览器连接数: {len(ws_server.clients)}\n往返时间: {elapsed:.0f}ms"
-        )]
+        status_text = "✅ 连接正常\n\n"
+        status_text += f"WebSocket 服务器端口: {ws_server.port}\n"
+        status_text += f"浏览器连接数: {len(ws_server.clients)}\n"
+        if failed_count > 0:
+            status_text += f"⚠️ 发送失败: {failed_count} 个连接\n"
+        status_text += f"往返时间: {elapsed:.0f}ms\n"
+
+        # 显示每个客户端的详细信息
+        if hasattr(ws_server, 'client_info'):
+            status_text += "\n客户端详情:\n"
+            for i, (client, info) in enumerate(ws_server.client_info.items(), 1):
+                status_text += f"  {i}. 版本: {info.get('version', '未知')}, "
+                status_text += f"连接时长: {int(time.time() - info.get('connect_time', time.time()))}秒\n"
+
+        return [TextContent(type="text", text=status_text)]
     except Exception as e:
-        return [TextContent(type="text", text=f"❌ 测试失败: {str(e)}")]
+        return [TextContent(type="text", text=f"❌ 测试失败: {str(e)}\n\n请检查 WebSocket 服务器是否正常运行")]
 
 async def login_library(args: dict) -> list[TextContent]:
     """登录图书馆"""
@@ -171,7 +196,6 @@ async def login_library(args: dict) -> list[TextContent]:
 
         university = args.get("university", "BIT")
         service = args.get("service", "https://lib.bit.edu.cn/sso/login/3rd?wfwfid=2398&refer=https://lib.bit.edu.cn")
-        discovery_url = args.get("discovery_url", "https://ss.zhizhen.com/")
         task_id = str(uuid.uuid4())
 
         payload = {
@@ -180,17 +204,13 @@ async def login_library(args: dict) -> list[TextContent]:
             'service': service
         }
 
-        result = await ws_server.send_task(task_id, payload)
+        # Provider 会完成整个登录流程（包括验证和兜底），需要更长超时
+        result = await ws_server.send_task(task_id, payload, timeout=60.0)
 
         if result.get("success"):
-            # 登录成功后自动跳转到发现系统
-            await asyncio.sleep(2)
-            zhizhen_task_id = str(uuid.uuid4())
-            await ws_server.send_task(zhizhen_task_id, {'type': 'OPEN_URL', 'url': discovery_url})
-
             return [TextContent(
                 type="text",
-                text=f"✅ {university} 登录成功，已跳转到发现系统"
+                text=f"✅ {university} 登录成功\n{result.get('message', '已完成图书馆和发现系统登录验证')}"
             )]
         else:
             return [TextContent(

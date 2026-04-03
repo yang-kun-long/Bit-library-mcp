@@ -44,7 +44,10 @@
       "Bash(pip freeze:*)",
       "Bash(git tag:*)",
       "Bash(pyinstaller --onefile server.py --name mcp-server)",
-      "Bash(pyinstaller --onefile server.py --name mcp-server --exclude-module PyQt5 --exclude-module PySide6 --exclude-module matplotlib --exclude-module numpy --exclude-module IPython --exclude-module pytest)"
+      "Bash(pyinstaller --onefile server.py --name mcp-server --exclude-module PyQt5 --exclude-module PySide6 --exclude-module matplotlib --exclude-module numpy --exclude-module IPython --exclude-module pytest)",
+      "mcp__library-access__login_library",
+      "Bash(ls:*)",
+      "Bash(pwsh:*)"
     ]
   }
 }

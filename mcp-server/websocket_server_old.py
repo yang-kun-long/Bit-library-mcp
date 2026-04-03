@@ -13,36 +13,20 @@ class WebSocketServer:
         self.start_time = time.time()
         self.clients: Set[websockets.WebSocketServerProtocol] = set()
         self.pending_tasks: Dict[str, asyncio.Future] = {}
-        self.client_info: Dict[websockets.WebSocketServerProtocol, dict] = {}
 
     async def handle_client(self, websocket):
         """处理客户端连接"""
         self.clients.add(websocket)
-        self.client_info[websocket] = {
-            'connect_time': time.time(),
-            'version': 'unknown',
-            'last_activity': time.time()
-        }
         print(f"[WebSocket] 客户端已连接，当前连接数: {len(self.clients)}")
-        # 广播自身信息，插件据此选择最新的活跃服务器
-        await websocket.send(json.dumps({
-            'type': 'ANNOUNCE',
-            'port': self.port,
-            'startTime': self.start_time
-        }))
 
         try:
             async for message in websocket:
                 data = json.loads(message)
-                # 更新最后活动时间
-                if websocket in self.client_info:
-                    self.client_info[websocket]['last_activity'] = time.time()
                 await self.handle_message(websocket, data)
         except websockets.exceptions.ConnectionClosed:
             pass
         finally:
             self.clients.remove(websocket)
-            self.client_info.pop(websocket, None)
             print(f"[WebSocket] 客户端已断开，当前连接数: {len(self.clients)}")
 
     async def handle_message(self, websocket, data):
@@ -58,12 +42,6 @@ class WebSocketServer:
                   for client in self.clients],
                 return_exceptions=True
             )
-        elif msg_type == 'CLIENT_INFO':
-            # 接收客户端版本信息
-            if websocket in self.client_info:
-                self.client_info[websocket]['version'] = data.get('version', 'unknown')
-                self.client_info[websocket]['browser'] = data.get('browser', 'unknown')
-            print(f"[WebSocket] 客户端信息: version={data.get('version')}, browser={data.get('browser')}")
         elif msg_type == 'INSTANCE_CHECK':
             # 直接回复发送者
             await websocket.send(json.dumps({'type': 'INSTANCE_RESPONSE', 'instanceId': self.instance_id}))
@@ -72,7 +50,7 @@ class WebSocketServer:
             future = self.pending_tasks.pop(task_id)
             future.set_result(data.get('data'))
 
-    async def send_task(self, task_id: str, payload: dict, timeout: float = 30.0) -> dict:
+    async def send_task(self, task_id: str, payload: dict) -> dict:
         """发送任务到浏览器插件并等待结果"""
         if not self.clients:
             raise Exception("没有可用的浏览器连接")
@@ -94,9 +72,9 @@ class WebSocketServer:
             return_exceptions=True
         )
 
-        # 等待结果（可配置超时）
+        # 等待结果（30秒超时）
         try:
-            result = await asyncio.wait_for(future, timeout=timeout)
+            result = await asyncio.wait_for(future, timeout=30.0)
             return result
         except asyncio.TimeoutError:
             self.pending_tasks.pop(task_id, None)
@@ -188,8 +166,7 @@ class WebSocketServer:
 
     async def start(self):
         """启动 WebSocket 服务器"""
-        self.port = await self.find_available_port(self.port)
-
+        # 在独立服务器模式下，使用固定端口，不再查找可用端口
         async with websockets.serve(self.handle_client, self.host, self.port):
-            print(f"[WebSocket] 服务器已启动: ws://{self.host}:{self.port} (实例ID: {self.instance_id[:8]})")
+            print(f"[WebSocket] 服务器已启动: ws://{self.host}:{self.port}")
             await asyncio.Future()  # 永久运行
