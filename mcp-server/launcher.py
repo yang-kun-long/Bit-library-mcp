@@ -4,12 +4,27 @@ Library Access MCP - 托盘启动器
 双击运行此文件，server 以系统托盘形式常驻，右键退出。
 """
 import asyncio
+import logging
+import multiprocessing
 import os
+import sys
 import threading
 import time
 
 import pystray
 from PIL import Image, ImageDraw
+
+# 日志写到 exe 同目录（PyInstaller 打包后 __file__ 不可用，改用 sys.executable）
+if getattr(sys, "frozen", False):
+    _base_dir = os.path.dirname(sys.executable)
+else:
+    _base_dir = os.path.dirname(os.path.abspath(__file__))
+
+logging.basicConfig(
+    filename=os.path.join(_base_dir, "mcp-server.log"),
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s: %(message)s",
+)
 
 # 导入 server 模块中的全局状态
 from server import main, ws_server
@@ -21,7 +36,6 @@ def _create_icon_image() -> Image.Image:
     img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
     draw.ellipse([2, 2, size - 2, size - 2], fill="#2563eb")
-    # 用矩形拼出字母 L（不依赖字体文件）
     draw.rectangle([20, 14, 28, 46], fill="white")  # 竖
     draw.rectangle([20, 38, 44, 46], fill="white")  # 横
     return img
@@ -29,9 +43,15 @@ def _create_icon_image() -> Image.Image:
 
 def _start_server_thread():
     """在独立线程中运行 asyncio 事件循环"""
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    loop.run_until_complete(main())
+    try:
+        # Windows 上 PyInstaller 打包后需要显式指定事件循环策略
+        if sys.platform == "win32":
+            asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(main())
+    except Exception:
+        logging.exception("MCP server 启动失败")
 
 
 def _status_updater(icon: pystray.Icon):
@@ -52,7 +72,6 @@ def _build_menu() -> pystray.Menu:
 
 
 def main_gui():
-    # 启动 server 后台线程
     threading.Thread(target=_start_server_thread, daemon=True).start()
 
     icon = pystray.Icon(
@@ -62,7 +81,6 @@ def main_gui():
         menu=_build_menu(),
     )
 
-    # 启动 tooltip 刷新线程（等 icon 就绪后）
     def on_setup(ic):
         ic.visible = True
         threading.Thread(target=_status_updater, args=(ic,), daemon=True).start()
@@ -71,4 +89,5 @@ def main_gui():
 
 
 if __name__ == "__main__":
+    multiprocessing.freeze_support()  # PyInstaller --onefile 必须
     main_gui()

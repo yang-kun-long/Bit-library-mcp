@@ -52,6 +52,15 @@ jobs:
             --collect-all uvicorn \
             --collect-all starlette \
             --collect-all pystray \
+            --collect-all mcp \
+            --collect-all anyio \
+            --collect-all websockets \
+            --hidden-import uvicorn.main \
+            --hidden-import uvicorn.loops.auto \
+            --hidden-import uvicorn.loops.asyncio \
+            --hidden-import uvicorn.protocols.http.h11_impl \
+            --hidden-import uvicorn.lifespan.on \
+            --hidden-import anyio._backends._asyncio \
             --windowed \
             mcp-server/launcher.py --name mcp-server-${{ matrix.os }}
 
