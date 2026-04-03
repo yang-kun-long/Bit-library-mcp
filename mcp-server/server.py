@@ -1,12 +1,22 @@
 #!/usr/bin/env python3
 import asyncio
+import contextlib
 import json
 import time
 import uuid
 from mcp.server import Server
 from mcp.types import Tool, TextContent
+from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
+from starlette.applications import Starlette
+from starlette.routing import Route
+from starlette.requests import Request
+from starlette.responses import JSONResponse
+import uvicorn
 from websocket_server import WebSocketServer
 from rule_manager import RuleManager
+
+# 认证 token（本地固定值，Claude Code 配置时指定）
+TOKEN = "library-access-for-LiuWen"
 
 # 创建 MCP 服务器
 app = Server("library-access-mcp")
@@ -483,14 +493,44 @@ def format_paper(paper: dict) -> str:
     return f"**{title}**\n作者: {authors}\n摘要: {abstract}...\nPDF: {pdf_url}"
 
 async def main():
-    """启动服务器"""
-    # 在后台启动 WebSocket 服务器
-    asyncio.create_task(ws_server.start())
+    """启动服务器（HTTP transport）"""
+    session_manager = StreamableHTTPSessionManager(
+        app=app,
+        json_response=True,
+        stateless=True,
+    )
 
-    # 运行 MCP 服务器
-    from mcp.server.stdio import stdio_server
-    async with stdio_server() as (read_stream, write_stream):
-        await app.run(read_stream, write_stream, app.create_initialization_options())
+    @contextlib.asynccontextmanager
+    async def lifespan(starlette_app):
+        asyncio.create_task(ws_server.start())
+        async with session_manager.run():
+            yield
+
+    async def health_handler(request: Request):
+        return JSONResponse({"status": "ok", "plugins": len(ws_server.clients)})
+
+    # /health 走 Starlette 路由，/mcp 用 ASGI 中间件直接接管，避免双重响应问题
+    inner_app = Starlette(routes=[Route("/health", health_handler)], lifespan=lifespan)
+
+    class MCPAuthMiddleware:
+        def __init__(self, wrapped):
+            self.wrapped = wrapped
+
+        async def __call__(self, scope, receive, send):
+            if scope["type"] == "http" and scope.get("path", "").startswith("/mcp"):
+                headers = dict(scope.get("headers", []))
+                auth = headers.get(b"authorization", b"").decode()
+                if auth != f"Bearer {TOKEN}":
+                    response = JSONResponse({"error": "Unauthorized"}, status_code=401)
+                    await response(scope, receive, send)
+                    return
+                await session_manager.handle_request(scope, receive, send)
+                return
+            await self.wrapped(scope, receive, send)
+
+    config = uvicorn.Config(MCPAuthMiddleware(inner_app), host="localhost", port=8766, log_level="info")
+    server = uvicorn.Server(config)
+    await server.serve()
 
 if __name__ == "__main__":
     asyncio.run(main())

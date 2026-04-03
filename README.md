@@ -78,41 +78,49 @@ sequenceDiagram
 
 ## 🛠️ 配置 AI 客户端 (Claude Code)
 
-在 Claude Code 配置中添加 MCP 服务器：
+### 第一步：启动 MCP Server
+
+**方式 A（源码）**：
+```bash
+cd mcp-server
+python server.py
+```
+
+**方式 B（Windows 二进制）**：直接双击 `mcp-server-windows-latest.exe`
+
+Server 启动后监听：
+- `http://localhost:8766/mcp` — MCP JSON-RPC 端点（供 Claude Code 连接）
+- `ws://localhost:8765` — WebSocket 端点（供浏览器插件连接）
+- `http://localhost:8766/health` — 健康检查
+
+### 第二步：注册到 Claude Code
+
+```bash
+claude mcp add --transport http -H "Authorization: Bearer library-access-for-LiuWen" --scope user -- library-access http://localhost:8766/mcp
+```
+
+或手动在 `~/.claude.json` 的 `mcpServers` 中添加：
 
 ```json
-{
-  "mcpServers": {
-    "library-access": {
-      "command": "<YOUR_DOWNLOAD_PATH>/mcp-server-windows-latest.exe",
-      "args": []
-    }
+"library-access": {
+  "type": "http",
+  "url": "http://localhost:8766/mcp",
+  "headers": {
+    "Authorization": "Bearer library-access-for-LiuWen"
   }
 }
 ```
 
-*注：请将 `<YOUR_DOWNLOAD_PATH>` 替换为 `.exe` 文件的实际存放路径。如果你从源码运行，请将 `command` 改为 `python`，并将 `args` 指向 `mcp-server/server.py` 的绝对路径。*
-
 ## 🔧 排错：插件与 MCP 服务器连接不上
 
-插件弹窗顶部会显示当前连接状态及端口号，例如：
+确认 server 正在运行：
 
-- `已连接到 MCP 服务器（端口 8765）`
-- `未连接到 MCP 服务器（端口 8765）`
+```bash
+curl http://localhost:8766/health
+# → {"status":"ok","plugins":1}   plugins=1 表示插件已连接
+```
 
-如果 AI 助手报告"没有浏览器连接"，而插件显示已连接，通常是**两端端口不一致**（多见于同时运行多个 MCP 服务器实例的情况）。
-
-**排错步骤：**
-
-1. 在 AI 助手中调用 `ping_test` 工具，查看返回的 **MCP 服务器端口**：
-   ```
-   ✅ 连接正常
-   MCP 服务器端口: 8766   ← 记住这个号
-   浏览器连接数: 0
-   ```
-2. 打开插件弹窗，查看状态栏中显示的端口号
-3. 若两者不一致，在弹窗的 **"MCP 服务器端口"** 输入框中填入正确端口，点击 **"保存并重连"**
-4. 再次调用 `ping_test`，确认浏览器连接数变为 1
+如果 `plugins=0`，检查浏览器插件是否已启用，或查看插件 Service Worker 控制台日志。
 
 ## 📖 文档与开发
 
@@ -123,7 +131,7 @@ sequenceDiagram
 ## 架构
 
 ```
-浏览器插件 <--WebSocket(localhost:8765)--> MCP Server <--stdio--> Claude Code
+浏览器插件 <--WebSocket(localhost:8765)--> MCP Server <--HTTP(localhost:8766/mcp)--> Claude Code
 ```
 
 ## 项目结构

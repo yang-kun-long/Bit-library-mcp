@@ -20,7 +20,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 通信链路：
 ```
-浏览器插件 <--WebSocket(localhost:8765)--> MCP Server <--stdio(MCP)--> AI 客户端
+浏览器插件 <--WebSocket(localhost:8765)--> MCP Server <--HTTP(localhost:8766/mcp)--> AI 客户端
 ```
 
 ## 核心概念
@@ -82,10 +82,11 @@ library-access-mcp/
 - **为什么不用 mcp-chrome**：每次让 LLM 理解页面太慢（13-20秒）
 - **为什么用规则引擎**：脚本化执行快（1秒），规则可复用
 - **为什么用 WebSocket**：插件与 MCP 服务器实时双向通信
+- **为什么用 HTTP transport 而非 stdio**：server 常驻不随 Claude Code 进程重启，端口冲突从架构上消失，支持多客户端复用同一 server 实例
 
 ## 安全考虑
 
-- 本地运行（localhost:8765）
+- 本地运行（localhost:8765/8766）
 - 不传输用户凭证
 - 规则需用户确认
 - 开源透明

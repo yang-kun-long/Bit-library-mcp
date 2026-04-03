@@ -48,7 +48,12 @@ jobs:
       - name: Build with PyInstaller
         shell: bash
         run: |
-          pyinstaller --onefile mcp-server/server.py --name mcp-server-${{ matrix.os }}
+          pyinstaller --onefile \
+            --collect-all uvicorn \
+            --collect-all starlette \
+            --collect-all pystray \
+            --windowed \
+            mcp-server/launcher.py --name mcp-server-${{ matrix.os }}
 
       - name: Upload Server Binary
         uses: actions/upload-artifact@v4
