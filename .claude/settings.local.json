@@ -50,7 +50,11 @@
       "Bash(pwsh:*)",
       "WebSearch",
       "Bash(claude mcp:*)",
-      "Read(//c/Users/1/.claude/**)"
+      "Read(//c/Users/1/.claude/**)",
+      "Bash(pip show:*)",
+      "Bash(curl -s http://localhost:8766/health)",
+      "Bash(curl -sv http://localhost:8766/health)",
+      "Bash(curl:*)"
     ]
   }
 }
