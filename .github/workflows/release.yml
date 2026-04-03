@@ -28,11 +28,8 @@ jobs:
           path: library-access-extension.zip
 
   build-mcp-server:
-    name: Build MCP Server Binary
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [ubuntu-latest, windows-latest]
+    name: Build MCP Server Binary (Windows)
+    runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
       - name: Set up Python
@@ -62,13 +59,13 @@ jobs:
             --hidden-import uvicorn.lifespan.on \
             --hidden-import anyio._backends._asyncio \
             --windowed \
-            mcp-server/launcher.py --name mcp-server-${{ matrix.os }}
+            mcp-server/launcher.py --name mcp-server-windows-latest
 
       - name: Upload Server Binary
         uses: actions/upload-artifact@v4
         with:
-          name: server-binary-${{ matrix.os }}
-          path: dist/mcp-server-*
+          name: server-binary-windows-latest
+          path: dist/mcp-server-windows-latest.exe
 
   create-release:
     name: Create GitHub Release
@@ -86,7 +83,6 @@ jobs:
         with:
           files: |
             artifacts/extension-zip/library-access-extension.zip
-            artifacts/server-binary-ubuntu-latest/mcp-server-ubuntu-latest
             artifacts/server-binary-windows-latest/mcp-server-windows-latest.exe
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
