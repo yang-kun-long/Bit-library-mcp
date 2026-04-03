@@ -47,7 +47,10 @@
       "Bash(pyinstaller --onefile server.py --name mcp-server --exclude-module PyQt5 --exclude-module PySide6 --exclude-module matplotlib --exclude-module numpy --exclude-module IPython --exclude-module pytest)",
       "mcp__library-access__login_library",
       "Bash(ls:*)",
-      "Bash(pwsh:*)"
+      "Bash(pwsh:*)",
+      "WebSearch",
+      "Bash(claude mcp:*)",
+      "Read(//c/Users/1/.claude/**)"
     ]
   }
 }

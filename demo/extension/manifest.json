@@ -1,0 +1,14 @@
+{
+  "manifest_version": 3,
+  "name": "Demo MCP Plugin",
+  "version": "1.0",
+  "description": "最小化 demo 插件 - 验证 MCP HTTP 认证",
+  "permissions": [
+    "tabs",
+    "activeTab"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  }
+}
