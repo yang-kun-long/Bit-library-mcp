@@ -49,9 +49,12 @@ jobs:
             --collect-all uvicorn \
             --collect-all starlette \
             --collect-all pystray \
-            --collect-all mcp \
             --collect-all anyio \
             --collect-all websockets \
+            --hidden-import mcp.server \
+            --hidden-import mcp.server.streamable_http_manager \
+            --hidden-import mcp.server.streamable_http \
+            --hidden-import mcp.types \
             --hidden-import uvicorn.main \
             --hidden-import uvicorn.loops.auto \
             --hidden-import uvicorn.loops.asyncio \
