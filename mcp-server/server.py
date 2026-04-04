@@ -528,7 +528,7 @@ async def main():
                 return
             await self.wrapped(scope, receive, send)
 
-    config = uvicorn.Config(MCPAuthMiddleware(inner_app), host="localhost", port=8766, log_level="info")
+    config = uvicorn.Config(MCPAuthMiddleware(inner_app), host="localhost", port=8766, log_level="info", log_config=None)
     server = uvicorn.Server(config)
     await server.serve()
 
