@@ -98,30 +98,42 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         });
       });
   } else if (message.type === 'CHECK_LIBRARY_AUTH') {
-    // 检查图书馆登录状态
-    let isLoggedIn = false;
-    let error = null;
+    (async () => {
+      let isLoggedIn = false;
+      let error = null;
+      let uname = '';
 
-    if (location.hostname === 'lib.bit.edu.cn') {
-      const loginedEl = document.getElementById('logined');
-      const loginBtn = document.getElementById('id-login');
+      if (location.hostname === 'lib.bit.edu.cn') {
+        const loginedEl = document.getElementById('logined');
+        const loginBtn = document.getElementById('id-login');
 
-      if (loginedEl && getComputedStyle(loginedEl).display !== 'none') {
-        isLoggedIn = true;
-      } else if (loginBtn) {
-        isLoggedIn = false;
-        error = '未登录';
+        if (loginedEl && getComputedStyle(loginedEl).display !== 'none') {
+          isLoggedIn = true;
+          // 获取学号，用于构造 session 同步 URL（3秒超时，失败不影响登录判定）
+          try {
+            const controller = new AbortController();
+            const tid = setTimeout(() => controller.abort(), 3000);
+            const resp = await fetch('/engine2/header/user-info', { signal: controller.signal });
+            clearTimeout(tid);
+            const data = await resp.json();
+            uname = data?.data?.uname || '';
+          } catch (e) {}
+        } else if (loginBtn) {
+          isLoggedIn = false;
+          error = '未登录';
+        } else {
+          error = '未找到登录状态标识';
+        }
       } else {
-        error = '未找到登录状态标识';
+        error = '不是图书馆页面';
       }
-    } else {
-      error = '不是图书馆页面';
-    }
 
-    sendResponse({
-      success: isLoggedIn,
-      error: isLoggedIn ? null : error
-    });
+      sendResponse({
+        success: isLoggedIn,
+        uname,
+        error: isLoggedIn ? null : error
+      });
+    })();
   } else if (message.type === 'CHECK_LOGIN_STATUS') {
     let isLoggedIn = false;
     let error = null;

@@ -94,10 +94,24 @@
 
 浏览器提示：**已阻止窗口弹出**
 
+## 解决方案（已采用）
+
+**方案1：直接构造 SSO 跳转 URL**
+
+通过 `/engine2/header/user-info` API 获取学号（`data.uname`），直接构造：
+
+```
+https://lib.bit.edu.cn/sso/api/search?wfwfid=2398&searchType=zhizhen&account={uname}&sw=sync&categoryId=19&fieldId=
+```
+
+用 `chrome.tabs.create()` 导航，后端 302 重定向到 `ss.zhizhen.com` 并自动完成 Session 同步，完全绕过 `window.open()` 弹窗拦截问题。
+
+注意：`/engine2/header/user-info` 在校外网络响应较慢，fetch 需加 3 秒超时，超时不影响登录判定（`uname` 留空时兜底失败，但不阻塞流程）。
+
 ## 状态
 
-🔴 **未解决** - 需要进一步调查和测试
+✅ **已解决** - 2026-04-04
 
 ## 日期
 
-2026-04-03
+2026-04-03 （发现） / 2026-04-04 （修复）

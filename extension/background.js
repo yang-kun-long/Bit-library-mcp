@@ -243,18 +243,34 @@ function waitForTabComplete(tabId, timeout = 15000) {
 
 async function handleSearchPapers(taskId, payload) {
   try {
-    // 查找或使用发现系统标签页
-    const tabs = await chrome.tabs.query({ url: 'https://ss.zhizhen.com/*' });
+    const provider = await getActiveProvider();
+    const discoveryUrl = provider.getDiscoveryUrl();
+    const urlPattern = discoveryUrl.replace(/\/$/, '') + '/*';
+
+    // 查找已有的发现系统标签页
+    let tabs = await chrome.tabs.query({ url: urlPattern });
+    let tab;
+
     if (tabs.length === 0) {
-      if (ws && isConnected) {
-        ws.send(JSON.stringify({
-          type: 'RESULT', taskId,
-          data: { success: false, error: '未找到发现系统页面，请先登录' }
-        }));
+      // 没有发现系统标签页，自动打开并等待加载
+      tab = await new Promise(resolve => chrome.tabs.create({ url: discoveryUrl, active: true }, resolve));
+      await waitForTabComplete(tab.id);
+      await new Promise(r => setTimeout(r, 1000));
+
+      // 检查是否已登录
+      const authCheck = await provider.checkAuth(tab.id);
+      if (!authCheck.success) {
+        if (ws && isConnected) {
+          ws.send(JSON.stringify({
+            type: 'RESULT', taskId,
+            data: { success: false, error: '发现系统未登录，请先调用 login_library 登录' }
+          }));
+        }
+        return;
       }
-      return;
+    } else {
+      tab = tabs[0];
     }
-    const tab = tabs[0];
 
     // 直接构造结果页 URL 导航
     const searchUrl = buildSearchUrl(payload);

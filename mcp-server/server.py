@@ -257,7 +257,7 @@ async def search_papers(args: dict) -> list[TextContent]:
     """搜索论文"""
     try:
         if not ws_server.clients:
-            return [TextContent(type="text", text="❌ 没有浏览器连接")]
+            return [TextContent(type="text", text="❌ 没有浏览器连接\n→ 建议: 确认浏览器插件已安装并已连接到 MCP 服务器")]
 
         task_id = str(uuid.uuid4())
         payload = {
@@ -298,9 +298,9 @@ async def search_papers(args: dict) -> list[TextContent]:
 
             return [TextContent(type="text", text=text)]
         else:
-            return [TextContent(type="text", text=f"❌ 搜索失败: {result.get('error', '未知错误')}")]
+            return [TextContent(type="text", text=f"❌ 搜索失败: {result.get('error', '未知错误')}\n→ 建议: 调用 login_library 重新登录后重试")]
     except Exception as e:
-        return [TextContent(type="text", text=f"❌ 搜索失败: {str(e)}")]
+        return [TextContent(type="text", text=f"❌ 搜索失败: {str(e)}\n→ 建议: 调用 login_library 重新登录后重试")]
 
 async def get_paper_detail(args: dict) -> list[TextContent]:
     """获取论文详情页完整信息"""

@@ -15,71 +15,34 @@ class BitProvider extends LoginProvider {
   }
 
   /**
-   * BIT 特有的统一检索同步逻辑
-   * 获取统一检索 URL 并打开，触发重定向以同步 session 到发现系统
+   * BIT 统一检索 session 同步
+   * 直接构造后端 SSO 跳转 URL，由服务器 302 重定向到发现系统，无需触发 window.open()
+   * @param {string} uname - 学号，从 /engine2/header/user-info 获取
    */
-  async syncSession() {
-    return new Promise((resolve, reject) => {
-      // 先打开图书馆首页获取搜索 URL
-      chrome.tabs.create({ url: this.getLibHome(), active: false }, (tab) => {
-        let outerTimeout = null;
+  async syncSession(uname) {
+    const syncUrl = `https://lib.bit.edu.cn/sso/api/search?wfwfid=2398&searchType=zhizhen&account=${encodeURIComponent(uname)}&sw=sync&categoryId=19&fieldId=`;
+    console.log('[BitProvider] 构造 session 同步 URL:', syncUrl);
 
-        const waitForLoad = setInterval(() => {
+    return new Promise((resolve, reject) => {
+      chrome.tabs.create({ url: syncUrl, active: false }, (tab) => {
+        waitForTabComplete(tab.id, 15000).then(() => {
           chrome.tabs.get(tab.id, (t) => {
             if (chrome.runtime.lastError) {
-              clearInterval(waitForLoad);
-              if (outerTimeout) clearTimeout(outerTimeout);
               reject(new Error('标签页已关闭'));
               return;
             }
-            if (t.status === 'complete') {
-              clearInterval(waitForLoad);
-              if (outerTimeout) clearTimeout(outerTimeout);
-
-              // 等待 content script 注入，然后发送消息
+            console.log('[BitProvider] 同步后落地 URL:', t.url);
+            if (t.url && t.url.includes('ss.zhizhen.com')) {
               setTimeout(() => {
-                chrome.tabs.sendMessage(tab.id, { type: 'PERFORM_UNIFIED_SEARCH' }, (res) => {
-                  if (chrome.runtime.lastError || !res || !res.success) {
-                    console.error('[BitProvider] 触发搜索失败:', res?.error || chrome.runtime.lastError?.message);
-                    reject(new Error('触发搜索失败: ' + (res?.error || chrome.runtime.lastError?.message)));
-                    return;
-                  }
-                  console.log('[BitProvider] 搜索已触发，等待页面跳转');
-
-                  // 等待页面 URL 变化
-                  const waitForRedirect = setInterval(() => {
-                    chrome.tabs.get(tab.id, (st) => {
-                      if (chrome.runtime.lastError) {
-                        clearInterval(waitForRedirect);
-                        reject(new Error('标签页已关闭'));
-                        return;
-                      }
-                      // 检查是否已跳转（URL 不再是图书馆首页）
-                      if (st.url && !st.url.includes('lib.bit.edu.cn') && st.status === 'complete') {
-                        clearInterval(waitForRedirect);
-                        console.log('[BitProvider] 页面已跳转到:', st.url);
-                        setTimeout(() => {
-                          resolve();
-                        }, 2000);
-                      }
-                    });
-                  }, 500);
-                  setTimeout(() => {
-                    clearInterval(waitForRedirect);
-                    reject(new Error('等待跳转超时'));
-                  }, 20000);
-                });
-              }, 2000);
+                chrome.tabs.remove(tab.id).catch(() => {});
+                resolve();
+              }, 1000);
+            } else {
+              chrome.tabs.remove(tab.id).catch(() => {});
+              reject(new Error(`重定向未到达发现系统，当前页: ${t.url}`));
             }
           });
-        }, 500);
-
-        // 页面加载超时15秒
-        outerTimeout = setTimeout(() => {
-          clearInterval(waitForLoad);
-          // chrome.tabs.remove(tab.id).catch(() => {}); // 调试：保留标签页
-          reject(new Error('图书馆页面加载超时'));
-        }, 15000);
+        });
       });
     });
   }
@@ -171,7 +134,7 @@ class BitProvider extends LoginProvider {
         console.error('[BitProvider] 图书馆登录验证失败');
         return { success: false, error: '图书馆登录验证失败，请检查凭据' };
       }
-      console.log('[BitProvider] 图书馆登录验证成功');
+      console.log('[BitProvider] 图书馆登录验证成功, uname:', libCheck.uname);
 
       // 3. 打开发现系统并检查登录状态
       console.log('[BitProvider] 步骤3: 检查发现系统登录状态');
@@ -186,7 +149,7 @@ class BitProvider extends LoginProvider {
       // 4. 如果发现系统未登录，执行兜底方案：统一检索同步
       console.log('[BitProvider] 步骤4: 发现系统未登录，执行统一检索兜底');
       try {
-        await this.syncSession();
+        await this.syncSession(libCheck.uname);
         console.log('[BitProvider] 统一检索同步完成');
       } catch (syncError) {
         console.warn('[BitProvider] 统一检索同步失败:', syncError);

@@ -20,8 +20,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Zip Extension
-        run: |
-          zip -r library-access-extension.zip extension/
+        run: zip -r library-access-extension.zip extension/
       - name: Upload Extension Artifact
         uses: actions/upload-artifact@v4
         with:
@@ -63,16 +62,16 @@ jobs:
             --hidden-import uvicorn.lifespan.on \
             --hidden-import anyio._backends._asyncio \
             --windowed \
-            mcp-server/launcher.py --name mcp-server-windows-latest
+            mcp-server/launcher.py --name mcp-server
 
       - name: Upload Server Binary
         uses: actions/upload-artifact@v4
         with:
-          name: server-binary-windows-latest
-          path: dist/mcp-server-windows-latest.exe
+          name: server-binary
+          path: dist/mcp-server.exe
 
   create-release:
-    name: Create GitHub Release
+    name: Package & Create GitHub Release
     needs: [build-extension, build-mcp-server]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
@@ -82,10 +81,17 @@ jobs:
         with:
           path: artifacts
 
+      - name: Package combined release zip
+        run: |
+          mkdir -p release/extension
+          unzip artifacts/extension-zip/library-access-extension.zip -d _ext_tmp
+          cp -r _ext_tmp/extension/. release/extension/
+          cp artifacts/server-binary/mcp-server.exe release/
+          cd release
+          zip -r ../library-access-mcp-${{ github.ref_name }}.zip .
+
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          files: |
-            artifacts/extension-zip/library-access-extension.zip
-            artifacts/server-binary-windows-latest/mcp-server-windows-latest.exe
+          files: library-access-mcp-${{ github.ref_name }}.zip
           token: ${{ secrets.GITHUB_TOKEN }}
