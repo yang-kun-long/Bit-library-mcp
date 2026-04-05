@@ -82,6 +82,27 @@ claude mcp add --transport http \
 }
 ```
 
+### 注册到 OpenCode
+
+在 OpenCode 配置文件 `~/.config/opencode/opencode.json` 的 `mcp` 字段中添加：
+
+```json
+{
+  "mcp": {
+    "library-access": {
+      "type": "remote",
+      "url": "http://localhost:8766/mcp",
+      "enabled": true,
+      "headers": {
+        "Authorization": "Bearer library-access-for-LiuWen"
+      }
+    }
+  }
+}
+```
+
+**注意**：OpenCode 使用 `"type": "remote"` 而不是 `"type": "http"`。
+
 ## 使用
 
 连接成功后，在 Claude Code 中直接对话即可：
