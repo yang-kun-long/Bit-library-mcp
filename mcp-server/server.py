@@ -502,9 +502,18 @@ async def main():
 
     @contextlib.asynccontextmanager
     async def lifespan(starlette_app):
-        asyncio.create_task(ws_server.start())
-        async with session_manager.run():
-            yield
+        # 启动 WebSocket 服务器
+        ws_task = asyncio.create_task(ws_server.start())
+        try:
+            async with session_manager.run():
+                yield
+        finally:
+            # 确保 WebSocket 服务器正确关闭
+            ws_task.cancel()
+            try:
+                await ws_task
+            except asyncio.CancelledError:
+                pass
 
     async def health_handler(request: Request):
         return JSONResponse({"status": "ok", "plugins": len(ws_server.clients)})
