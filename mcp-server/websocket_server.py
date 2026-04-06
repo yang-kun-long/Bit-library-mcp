@@ -41,7 +41,7 @@ class WebSocketServer:
         except websockets.exceptions.ConnectionClosed:
             pass
         finally:
-            self.clients.remove(websocket)
+            self.clients.discard(websocket)
             self.client_info.pop(websocket, None)
             print(f"[WebSocket] 客户端已断开，当前连接数: {len(self.clients)}")
 
@@ -70,7 +70,8 @@ class WebSocketServer:
         elif msg_type == 'RESULT' and task_id in self.pending_tasks:
             # 完成等待中的任务
             future = self.pending_tasks.pop(task_id)
-            future.set_result(data.get('data'))
+            if not future.done():
+                future.set_result(data.get('data'))
 
     async def send_task(self, task_id: str, payload: dict, timeout: float = 30.0) -> dict:
         """发送任务到浏览器插件并等待结果"""

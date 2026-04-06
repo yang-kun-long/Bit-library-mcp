@@ -49,29 +49,53 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **规则格式**: JSON (支持变量替换 `{query}`)
 - **认证**: Shibboleth, CARSI, OAuth
 
+## 多校 Provider 架构
+
+每个学校的登录逻辑封装在独立的 Provider 文件中（`extension/providers/`），继承 `LoginProvider` 基类。
+
+### 已验证的两种认证模式
+
+| 模式 | 代表学校 | 流程 | 是否需要凭证 |
+|------|---------|------|-------------|
+| CAS + Session 同步 | BIT（北理工） | CAS 登录 → 图书馆验证 → syncSession 同步发现系统 | 否（复用浏览器 session） |
+| CARSI/Shibboleth | BUAA（北航） | Shibboleth IdP 跳转 → 学校 SSO 填写凭证 → 回调智真 | 是（username + password） |
+
+### 新增学校步骤
+
+1. 新建 `extension/providers/xxx-provider.js`，继承 `LoginProvider`
+2. 实现 `getName()`、`getLoginUrl()`、`login(taskId, payload)`
+3. 在 `background.js` 的 `Providers` 对象中注册
+4. 无需修改服务端代码
+
 ## 开发计划
 
-当前状态：**MVP 阶段** (2026-04-01 已实现智真系统元数据增强抓取)
+当前状态：**MVP 阶段** (2026-04-06 多校登录架构已验证)
 
 MVP 目标：
 - [x] 实现智真系统 (Zhizhen/超星发现) 元数据深度抓取 (单位, 基金, 核心收录等)
 - [x] 修复 WebSocket 任务解包协议 (支持 `TASK` 类型的封装指令)
+- [x] 多校 Provider 架构 (BIT CAS + BUAA CARSI 两种模式验证通过)
 - [ ] 实现北理工 IEEE Xplore 访问
 
-## 项目结构（规划）
+## 项目结构
 
 ```
 library-access-mcp/
-├── extension/          # Chrome 插件
+├── extension/              # Chrome 插件
 │   ├── manifest.json
-│   ├── background.js   # WebSocket 客户端
-│   ├── content.js      # 脚本执行引擎
-│   └── rules/          # 规则库 (*.json)
-├── mcp-server/         # Python MCP 服务器
+│   ├── background.js       # WebSocket 客户端 + Provider 注册
+│   ├── content.js          # 脚本执行引擎
+│   ├── providers/          # 多校登录 Provider
+│   │   ├── base-provider.js    # 基类（checkAuth 等通用方法）
+│   │   ├── bit-provider.js     # 北理工（CAS + Session 同步）
+│   │   ├── buaa-provider.js    # 北航（CARSI/Shibboleth）
+│   │   └── manual-provider.js  # 手动登录兜底
+│   └── rules/              # 规则库 (*.json)
+├── mcp-server/             # Python MCP 服务器
 │   ├── server.py
 │   ├── websocket_server.py
 │   └── rule_manager.py
-└── docs/               # 文档
+└── docs/                   # 文档
 ```
 
 ## 关键设计决策
@@ -87,7 +111,8 @@ library-access-mcp/
 ## 安全考虑
 
 - 本地运行（localhost:8765/8766）
-- 不传输用户凭证
+- BIT 模式不传输用户凭证（复用浏览器 session）
+- BUAA 等 CARSI 模式凭证仅在本地 localhost 传输，不经过外部服务器
 - 规则需用户确认
 - 开源透明
 

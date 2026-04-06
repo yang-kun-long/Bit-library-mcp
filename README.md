@@ -117,7 +117,7 @@ AI 会自动处理登录、搜索、抓取、保存全流程。
 | 工具 | 说明 |
 |------|------|
 | `ping_test` | 测试插件连接状态 |
-| `login_library` | 登录图书馆（支持自动兜底同步发现系统 Session） |
+| `login_library` | 登录图书馆（支持多校，自动兜底同步发现系统 Session） |
 | `search_papers` | 搜索论文（自动检测登录状态） |
 | `get_paper_detail` | 抓取论文完整元数据 |
 | `download_paper` | 下载论文 PDF |
@@ -125,10 +125,29 @@ AI 会自动处理登录、搜索、抓取、保存全流程。
 
 ## 支持的学校
 
-当前已配置：
-- **北京理工大学**（已完整测试，包含校外自动认证）
+| 学校 | 代码 | 认证方式 | 是否需要凭证 |
+|------|------|---------|-------------|
+| 北京理工大学 | `BIT` | CAS + Session 同步 | 否（复用浏览器 session） |
+| 北京航空航天大学 | `BUAA` | CARSI/Shibboleth | 是（username + password） |
+| 其他学校 | `MANUAL` | 手动登录 | — |
 
-欢迎提交 PR 添加更多学校。
+### 使用示例
+
+```
+# BIT（默认，无需凭证）
+> "登录图书馆"
+
+# BUAA（需要凭证）
+> "用北航账号登录图书馆，用户名 xxx，密码 xxx"
+```
+
+### 添加新学校
+
+新增学校只需：
+1. 在 `extension/providers/` 下创建 `xxx-provider.js`，继承 `LoginProvider`
+2. 在 `extension/background.js` 中注册 Provider
+
+无需修改服务端代码。详见 [多校支持开发指南](./DEVELOPMENT.md)。
 
 ## 排错
 
@@ -149,6 +168,7 @@ curl http://localhost:8766/health
 - [x] 校外自动登录兜底（SSO 重定向构造）
 - [x] 搜索前自动检测登录状态
 - [x] Windows 托盘二进制打包
+- [x] 多校 Provider 架构（BIT + BUAA 验证通过）
 - [ ] IEEE Xplore 支持
 - [ ] 更多高校 Provider
 
@@ -156,7 +176,6 @@ curl http://localhost:8766/health
 
 - [安装指南](./INSTALL.md)
 - [多校支持开发指南](./DEVELOPMENT.md)
-- [技术实现日志](./TECH_LOG.md)
 
 ## 许可
 

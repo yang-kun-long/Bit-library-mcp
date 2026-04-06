@@ -9,6 +9,7 @@ importScripts(
   'cas-login.js',
   'providers/base-provider.js',
   'providers/bit-provider.js',
+  'providers/buaa-provider.js',
   'providers/manual-provider.js'
 );
 
@@ -67,6 +68,7 @@ setInterval(() => {
 // 实例化 Providers
 const Providers = {
   'BIT': new BitProvider(),
+  'BUAA': new BuaaProvider(),
   'MANUAL': new ManualProvider()
 };
 
@@ -107,7 +109,15 @@ async function handleMessage(msg) {
     const provider = await getActiveProvider();
 
     if (type === 'LOGIN' || type === 'LOGIN_LIBRARY') {
-      const result = await provider.login(taskId, payload);
+      // LOGIN_LIBRARY 支持通过 payload.university 动态选择 provider
+      let loginProvider = provider;
+      if (type === 'LOGIN_LIBRARY' && payload.university && Providers[payload.university]) {
+        loginProvider = Providers[payload.university];
+        // 同步更新存储以供后续操作使用
+        await chrome.storage.local.set({ university: payload.university });
+        console.log(`[MCP] 切换 Provider 为: ${payload.university}`);
+      }
+      const result = await loginProvider.login(taskId, payload);
       ws.send(JSON.stringify({ type: 'RESULT', taskId, data: result }));
     } else if (type === 'SEARCH_PAPERS') {
       await handleSearchPapers(taskId, payload);
@@ -458,12 +468,29 @@ async function handleGetPaperDetail(taskId, payload) {
           const issn = findField('I S S N');
           const classification = findField('分类号');
 
-          // 提取评价指标
+          // 提取评价指标（只取数字，排除图表噪声文本）
           const impactFactorEl = document.querySelector('.Influence');
-          const impactFactor = impactFactorEl ? impactFactorEl.textContent.trim() : null;
+          let impactFactor = null;
+          if (impactFactorEl) {
+            const match = impactFactorEl.textContent.match(/^[\d.]+/);
+            impactFactor = match ? match[0] : null;
+          }
 
           const indexingEls = document.querySelectorAll('.FindLabel');
           const indexing = Array.from(indexingEls).map(el => el.textContent.trim()).filter(Boolean);
+
+          // 获取途径 (access links)
+          const accessLinks = [];
+          const accessDl = document.querySelector('dl.access_links');
+          if (accessDl) {
+            accessDl.querySelectorAll('dd a.tg').forEach(a => {
+              const name = norm(a.textContent);
+              const href = a.href || '';
+              if (name && href && !href.startsWith('javascript:')) {
+                accessLinks.push({ name, url: href });
+              }
+            });
+          }
 
           // 获取标准引文格式 (增加超时控制)
           let citation = '';
@@ -488,7 +515,7 @@ async function handleGetPaperDetail(taskId, payload) {
             abstract, venue, doi, year, keywords, authors,
             affiliation, funding, volume, issue, pages,
             issn, classification, impactFactor, indexing,
-            citation
+            citation, accessLinks
           };
           } catch (e) {
               console.error('[Injected] 脚本执行异常:', e);

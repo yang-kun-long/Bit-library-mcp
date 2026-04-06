@@ -44,7 +44,9 @@ async def list_tools() -> list[Tool]:
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "university": {"type": "string", "description": "学校代码，例如 'BIT' (北京理工大学)", "default": "BIT"},
+                    "university": {"type": "string", "description": "学校代码，例如 'BIT' (北京理工大学) 或 'BUAA' (北京航空航天大学)", "default": "BIT"},
+                    "username": {"type": "string", "description": "登录用户名（BUAA 等需要凭证的学校必填）"},
+                    "password": {"type": "string", "description": "登录密码（BUAA 等需要凭证的学校必填）"},
                     "service": {"type": "string", "description": "特定的服务 URL", "default": "https://lib.bit.edu.cn/sso/login/3rd?wfwfid=2398&refer=https://lib.bit.edu.cn"},
                     "discovery_url": {"type": "string", "description": "发现系统 URL（如智真/超星），登录后自动跳转", "default": "https://ss.zhizhen.com/"}
                 },
@@ -115,11 +117,12 @@ async def list_tools() -> list[Tool]:
         ),
         Tool(
             name="download_paper",
-            description="下载论文 PDF",
+            description="在浏览器中打开论文获取途径页面，供用户自行下载。建议使用 get_paper_detail 返回的 accessLinks 中的 URL。",
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "url": {"type": "string", "description": "论文 PDF 链接"}
+                    "url": {"type": "string", "description": "获取途径链接（来自 get_paper_detail 返回的 accessLinks）"},
+                    "title": {"type": "string", "description": "论文标题（用于提示信息）"}
                 },
                 "required": ["url"]
             }
@@ -211,7 +214,9 @@ async def login_library(args: dict) -> list[TextContent]:
         payload = {
             'type': 'LOGIN_LIBRARY',
             'university': university,
-            'service': service
+            'service': service,
+            'username': args.get("username"),
+            'password': args.get("password"),
         }
 
         # Provider 会完成整个登录流程（包括验证和兜底），需要更长超时
@@ -220,7 +225,7 @@ async def login_library(args: dict) -> list[TextContent]:
         if result.get("success"):
             return [TextContent(
                 type="text",
-                text=f"✅ {university} 登录成功\n{result.get('message', '已完成图书馆和发现系统登录验证')}"
+                text=f"✅ {university} 登录成功\n{result.get('message', '已完成图书馆和发现系统登录验证')}\n\n→ 下一步: 使用 search_papers 搜索论文"
             )]
         else:
             return [TextContent(
@@ -270,7 +275,7 @@ async def search_papers(args: dict) -> list[TextContent]:
         if result.get("success"):
             papers = result.get("papers", [])
             if not papers:
-                return [TextContent(type="text", text="未找到相关论文")]
+                return [TextContent(type="text", text="未找到相关论文\n→ 建议: 尝试更换关键词或调整检索字段(field)重新搜索")]
 
             total = result.get("total", "")
             page = args.get("page", 1)
@@ -296,6 +301,7 @@ async def search_papers(args: dict) -> list[TextContent]:
                     text += f"   链接: {paper['url']}\n"
                 text += "\n"
 
+            text += "→ 下一步: 对感兴趣的论文使用 get_paper_detail(url=链接, dxid=ID) 获取完整详情\n"
             return [TextContent(type="text", text=text)]
         else:
             return [TextContent(type="text", text=f"❌ 搜索失败: {result.get('error', '未知错误')}\n→ 建议: 调用 login_library 重新登录后重试")]
@@ -314,6 +320,7 @@ async def get_paper_detail(args: dict) -> list[TextContent]:
         result = await ws_server.send_task(task_id, payload)
 
         if result.get("success"):
+            # 构建可读文本
             text = ""
             if result.get("abstract"):
                 text += f"**摘要**\n{result['abstract']}\n\n"
@@ -363,8 +370,21 @@ async def get_paper_detail(args: dict) -> list[TextContent]:
             if result.get("funding"):
                 text += f"**基金项目**: {result['funding']}\n"
 
+            if result.get("accessLinks"):
+                links = result["accessLinks"]
+                text += f"**获取途径**: "
+                text += " | ".join([f"[{l['name']}]({l['url']})" for l in links])
+                text += "\n"
+
             if result.get("citation"):
                 text += f"\n**引文格式**\n{result['citation']}\n"
+
+            # 附加结构化 JSON，供 persist_paper 直接使用
+            paper_data = {k: v for k, v in result.items() if k != "success"}
+            # 补充 dxid（可能来自请求参数）
+            if args.get("dxid") and not paper_data.get("dxid"):
+                paper_data["dxid"] = args["dxid"]
+            text += f"\n---\n→ 下一步: 使用 persist_paper 固化此论文，直接将下方 JSON 作为 paper_data 参数传入:\n```json\n{json.dumps(paper_data, ensure_ascii=False, indent=2)}\n```"
 
             return [TextContent(type="text", text=text or "未获取到详情")]
         else:
@@ -373,8 +393,24 @@ async def get_paper_detail(args: dict) -> list[TextContent]:
         return [TextContent(type="text", text=f"❌ 获取失败: {str(e)}")]
 
 async def download_paper(args: dict) -> list[TextContent]:
-    """下载论文"""
-    # ... 原有代码保持不变 ...
+    """在浏览器中打开论文获取途径，供用户自行下载"""
+    try:
+        if not ws_server.clients:
+            return [TextContent(type="text", text="❌ 没有浏览器连接")]
+
+        url = args["url"]
+        title = args.get("title", "")
+        task_id = str(uuid.uuid4())
+        payload = {"type": "OPEN_URL", "url": url}
+        await ws_server.send_task(task_id, payload)
+
+        title_hint = f"《{title}》" if title else "论文"
+        return [TextContent(
+            type="text",
+            text=f"✅ 已在浏览器中打开{title_hint}的获取途径页面，请在浏览器中完成下载。\n\n→ 提示: 如需其他获取途径，可使用 get_paper_detail 查看所有可用链接"
+        )]
+    except Exception as e:
+        return [TextContent(type="text", text=f"❌ 打开失败: {str(e)}")]
 
 async def persist_paper(args: dict) -> list[TextContent]:
     """将论文元数据固化到本地目录"""
@@ -401,7 +437,7 @@ async def persist_paper(args: dict) -> list[TextContent]:
         authors_str = ", ".join(authors) if isinstance(authors, list) else str(authors)
         keywords = paper.get("keywords", [])
         keywords_str = ", ".join(keywords) if isinstance(keywords, list) else str(keywords)
-        indexing = paper.get("indexing", [])
+        indexing = paper.get("indexing") or paper.get("coreIndexing", [])
         indexing_str = " / ".join(indexing) if isinstance(indexing, list) else str(indexing)
 
         content = f"# {title}\n\n"
@@ -419,6 +455,9 @@ async def persist_paper(args: dict) -> list[TextContent]:
         if vol: pub_info += f", {vol}"
         if issue: pub_info += f" ({issue})"
         if pages: pub_info += f", {pages}"
+        # 兼容直接传入 source 字符串的情况
+        if not pub_info and paper.get("source"):
+            pub_info = paper["source"]
         content += f"- **出版信息**: {pub_info}\n"
         content += f"- **ID (dxid)**: {dxid}\n"
         content += f"- **ISSN**: {paper.get('issn', '')}\n"
@@ -438,6 +477,12 @@ async def persist_paper(args: dict) -> list[TextContent]:
         if paper.get('funding'):
             content += "## 基金项目\n"
             content += f"{paper.get('funding')}\n\n"
+
+        if paper.get('accessLinks'):
+            content += "## 获取途径\n"
+            for link in paper['accessLinks']:
+                content += f"- [{link['name']}]({link['url']})\n"
+            content += "\n"
 
         if paper.get('citation'):
             content += "## 引文格式\n"
@@ -465,7 +510,7 @@ async def persist_paper(args: dict) -> list[TextContent]:
                 f.write("| :--- | :--- | :--- | :--- | :--- |\n")
                 f.write(new_row)
 
-        return [TextContent(type="text", text=f"✅ 资产固化成功:\n文件: {file_path}\n索引已更新")]
+        return [TextContent(type="text", text=f"✅ 资产固化成功:\n文件: {file_path}\n索引已更新\n\n→ 可继续: 使用 search_papers 搜索更多论文，或使用 download_paper 下载 PDF")]
 
     except Exception as e:
         return [TextContent(type="text", text=f"❌ 固化失败: {str(e)}")]

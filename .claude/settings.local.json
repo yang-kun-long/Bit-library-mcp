@@ -54,7 +54,16 @@
       "Bash(pip show:*)",
       "Bash(curl -s http://localhost:8766/health)",
       "Bash(curl -sv http://localhost:8766/health)",
-      "Bash(curl:*)"
+      "Bash(curl:*)",
+      "Bash(python3 -c \"import sys,json; data=json.load\\(sys.stdin\\); [print\\(f'ID: {r[\\\\\"id\\\\\"]} | Status: {r[\\\\\"status\\\\\"]} | Conclusion: {r[\\\\\"conclusion\\\\\"]} | Name: {r[\\\\\"name\\\\\"]} | Created: {r[\\\\\"created_at\\\\\"]}'\\) for r in data['workflow_runs']]\")",
+      "WebFetch(domain:github.com)",
+      "Bash(where gh:*)",
+      "Bash(powershell -Command \"Get-Command gh -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source\")",
+      "Bash(cmd:*)",
+      "Bash(\"D:\\\\GitHub CLI\\\\gh.exe\" workflow run release.yml)",
+      "Bash(git pull:*)",
+      "WebFetch(domain:sso.buaa.edu.cn)",
+      "mcp__library-access__download_paper"
     ]
   }
 }
